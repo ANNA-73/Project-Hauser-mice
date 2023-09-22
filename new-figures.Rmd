@@ -1,0 +1,131 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+#libraries
+#####
+# install.packages("reader")
+#install.packages("ggthemes")
+library(tidyverse)
+library(readxl)
+library(reader)
+library(ggplot2)
+library(ggpubr)
+library(ggsci)
+library(ggthemes)
+```
+
+```{r}
+ck <- read.csv("ck-relab-output.csv" , header = TRUE)
+cz <- read.csv("cz-relab-output.csv" , header = TRUE)
+zk <-read.csv("zk-relab-output.csv" , header = TRUE)
+
+```
+
+```{r}
+#plot for ck
+##########
+
+data1 <- ck
+data1$day <-  factor(data1$day)
+# levels(ck$day)
+data1$Id <- factor(data1$Id, levels = data1$Id[order(data1$day)])
+
+ckp <- ggplot(data1  , aes(x = Id, y = relab, color = ifelse(grepl("^c-", Id), "C", "K"))) + 
+  geom_point(size = 2) +
+  geom_hline(yintercept = c(3.236, 0.27564), linetype = 5, color = c("red", "blue"), lwd = 0.4, alpha=0.4) +
+  labs(
+    title = "Relative abundance of mapped reads",
+    subtitle = "CK treatment",
+    y = "Relative abundance percentage",
+    x = "sample ID"
+  ) +
+  theme_light() +
+  theme( legend.box.background = element_rect(color="grey", size=1), legend.position="bottom" , axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+p1 <- ckp +  scale_color_jama() +
+  labs(colour = c("c-", "k-")) + 
+  guides( color =  guide_legend(title = "Aligned reads to K.pneumoniae strains"))
+  theme(legend.title = element_text()) 
+p1
+
+```
+
+
+```{r}
+#plot for ZK
+#############
+
+
+data1 <- zk
+data1$day <-  factor(data1$day)
+# levels(ck$day)
+data1$Id <- factor(data1$Id, levels = data1$Id[order(data1$day)])
+
+zkp <- ggplot(data1  , aes(x = Id, y = relab, color = ifelse(grepl("^z-", Id), "Z", "K"))) + 
+  geom_point(size = 2) +
+  geom_hline(yintercept = c(9.748 , 0.22), linetype = 5, color = c("blue" , "red"), lwd = 0.4, alpha=0.4) +
+  labs(
+    title = "Relative abundance of mapped reads",
+    subtitle = "ZK treatment",
+    y = "Relative abundance percentage",
+    x = "sample ID"
+  ) +
+  theme_light() +
+  theme( legend.box.background = element_rect(color="grey", size=1), legend.position="bottom" , axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+p2 <- zkp +  scale_color_jama() +
+  labs(colour = c("z-", "k-")) + 
+  guides( color =  guide_legend(title = "Aligned reads to K.pneumoniae strains"))
+  theme(legend.title = element_text()) 
+p2
+
+```
+
+```{r}
+#CZ plot
+#########
+data1 <- cz
+data1$day <-  factor(data1$day)
+# levels(ck$day)
+data1$Id <- factor(data1$Id, levels = data1$Id[order(data1$day)])
+
+zkp <- ggplot(data1  , aes(x = Id, y = relab, color = ifelse(grepl("^z-", Id), "Z", "C"))) + 
+  geom_point(size = 2) +
+  geom_hline(yintercept = c(3.860,2.45,0.57), linetype = 5, color = c( "red"), lwd = 0.4, alpha=0.4) +
+  labs(
+    title = "Relative abundance of mapped reads",
+    subtitle = "CZ treatment",
+    y = "Relative abundance percentage",
+    x = "sample ID"
+  ) +
+  theme_light() +
+  theme( legend.box.background = element_rect(color="grey", size=1), legend.position="bottom" , axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+p3 <- zkp +  scale_color_jama() +
+  labs(colour = c("z-", "c-")) + 
+  guides( color =  guide_legend(title = "Aligned reads to K.pneumoniae strains"))
+  theme(legend.title = element_text()) 
+p3
+
+```
+
+```{r}
+# save plots
+##########
+name <- "CK-relab.pdf"
+ggsave(name, plot=p1, height = 4, width = 6, device="pdf", useDingbats=F) # edit plot fonts in Illustrator
+
+name <- "ZK-relab.pdf"
+ggsave(name, plot=p2, height = 4, width = 6, device="pdf", useDingbats=F) # edit plot fonts in Illustrator
+
+name <- "CZ-relab.pdf"
+ggsave(name, plot=p3, height = 4, width = 6, device="pdf", useDingbats=F) # edit plot fonts in Illustrator
+
+
+
+```
+
