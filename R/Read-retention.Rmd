@@ -12,6 +12,7 @@ Checking for read retention after decontamination for human and mice genome
 library(tidyr)
 library(readr)
 library(ggplot2)
+library(dplyr)
 
 ```
 
@@ -21,4 +22,61 @@ reten <- read_tsv("data/read_retention_summary.txt" )
 
 reten
 ```
+```{r}
+
+df_long <- reten %>%
+  pivot_longer(cols = c(Input_R1, Output_R1), 
+               names_to = "Read_Type", 
+               values_to = "Count") %>%
+  mutate(Read_Type = factor(Read_Type, 
+                            levels = c("Input_R1", "Output_R1"),
+                            labels = c("Input", "Retained")))
+
+p1 <- ggplot(df_long, aes(x = Sample, y = Count, fill = Read_Type, alpha = Read_Type)) +
+  geom_col(position = "identity") +
+  geom_text(data = reten, 
+            aes(x = Sample, 
+                y = Input_R1 * 1.05,
+                label = paste0(`Retention_R1_%`, "%")),
+            inherit.aes = FALSE, 
+            size = 5, 
+            angle = 90, 
+            hjust = 0,
+            fontface = "bold") +
+  scale_fill_manual(values = c(Input = "gray60", Retained = "forestgreen")) +
+  scale_alpha_manual(values = c(Input = 0.5, Retained = 0.9)) +
+  theme_classic() +
+  theme(
+   
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 14, face = "bold"),
+    
+    axis.text.y = element_text(size = 14, face = "bold"),
+    
+    axis.title.y = element_text(size = 18, face = "bold"),
+    
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 10, face = "bold"),
+  
+    axis.title.x = element_text(size = 14, face = "bold"),
+   
+    legend.text = element_text(size = 12),
+    
+    legend.title = element_text(size = 14, face = "bold"),
+    
+    legend.key.size = unit(1.5, "cm")
+  ) +
+  labs(title = "Read Retention After Decontamination",
+       subtitle = paste0("Mean retention: ", round(mean(reten$`Retention_R1_%`), 1), 
+                        "% | Median retention: ", round(median(reten$`Retention_R1_%`), 1), "%"),
+       y = "Number of Reads",
+       x = "Sample",
+       fill = "Read Type") +
+  guides(alpha = "none")
+
+p1
+ggsave("Read_retention.png", plot = p1, dpi = 300, width = 20, height = 12)
+  
+```
+
+
 
