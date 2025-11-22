@@ -1,0 +1,24 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Hauser-Mice project
+
+Checking for read retention after decontamination for human and mice genome
+
+```{r}
+
+library(tidyr)
+library(readr)
+library(ggplot2)
+
+```
+
+```{r}
+setwd("/gpfs/projects/b1042/HartmannLab/Hauser-mice")
+reten <- read_tsv("data/read_retention_summary.txt" )
+
+reten
+```
+
