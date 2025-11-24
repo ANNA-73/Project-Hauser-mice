@@ -8,16 +8,15 @@
 #SBATCH --job-name="bowtie"
 #SBATCH --mail-user=anahid.moghadam@northwestern.edu
 #SBATCH --mail-type=FAIL
-#SBATCH --output=/projects/b1042/HartmannLab/Hauser-mice/bowtie.out
-#SBATCH --error=/projects/b1042/HartmannLab/Hauser-mice/bowtie.err
+#SBATCH --output=/projects/b1042/HartmannLab/Hauser-mice/logs/bowtie.out
+#SBATCH --error=/projects/b1042/HartmannLab/Hauser-mice/logs/bowtie.err
 
 
 module purge all
 module load bowtie2/2.4.5
-module load perl/5.16
-module load samtools/1.2
 
-cd /projects/b1042/HartmannLab/Hauser-mice/decon-genome
 
-bowtie2-build hg38.fna,mouse.fna  host_contam --threads 16 --large-index
+file_path=/projects/b1042/HartmannLab/Hauser-mice/input/references/
+
+bowtie2-build ${file_path}Z4160.fasta,${file_path}KPN46.fasta ${file_path}/KZ/KZ --threads 16 
     
