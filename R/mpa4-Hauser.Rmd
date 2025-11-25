@@ -19,6 +19,18 @@ library(ggridges)
 library(stringr)
 ```
 
+
+```{r}
+file_path <- "/projects/b1042/HartmannLab/Hauser-mice/output/mpa4"
+metadata_path <- "/projects/b1042/HartmannLab/Hauser-mice/input"
+
+gtdb_table <- read_tsv(file.path(file_path, "gtdb_merged_table.txt"), comment = "#")
+metadata <- read_csv(file.path(metadata_path, "sample_metadata_final.csv"))
+
+gtdb_table
+metadata
+```
+
 ```{r}
 
 load_bracken <- function(level) {
