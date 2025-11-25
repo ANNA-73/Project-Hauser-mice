@@ -33,62 +33,43 @@ metadata
 
 ```{r}
 
-load_bracken <- function(level) {
-  # Build filename
-  filename <- paste0("bracken_combined_", level)
-
-  # Read file and keep only bacteria
-  bracken <- read_tsv(filename, show_col_types = FALSE) %>%
-    filter(str_detect(Classification, "d__Bacteria"))
+load_mpa <- function(gtdb_table, level) {
+ 
 
   # Filter and clean depending on level
   if (level == "phylum") {
-    bracken <- bracken %>%
-      filter(str_detect(Classification, "p__")) %>%
-      mutate(Classification = sub(".*p__", "", Classification))
-    colnames(bracken) <- gsub("-report-Phylum\\.breport$", "", colnames(bracken))
+    gtdb_table <- gtdb_table %>%
+      filter(str_detect(clade_name, "p__")) %>%
+      mutate(clade_name = sub(".*p__", "", clade_name))
   } 
   else if (level == "family") {
-    bracken <- bracken %>%
-      filter(str_detect(Classification, "f__") & !str_detect(Classification, "g__")) %>%
-      mutate(Classification = sub(".*f__", "", Classification))
-    colnames(bracken) <- gsub("-report-Family\\.breport$", "", colnames(bracken))
+    gtdb_table <- gtdb_table %>%
+      filter(str_detect(clade_name, "f__") & !str_detect(clade_name, "g__")) %>%
+      mutate(clade_name = sub(".*f__", "", clade_name))
+    colnames(gtdb_table) <- gsub("-report-Family\\.breport$", "", colnames(gtdb_table))
   } 
   else if (level == "genera") {
-    bracken <- bracken %>%
-      filter(str_detect(Classification, "g__") & !str_detect(Classification, "s__")) %>%
-      mutate(Classification = sub(".*g__", "", Classification))
-    colnames(bracken) <- gsub("-report-Genera\\.breport$", "", colnames(bracken))
+    gtdb_table <- gtdb_table %>%
+      filter(str_detect(clade_name, "g__") & !str_detect(clade_name, "s__")) %>%
+      mutate(clade_name = sub(".*g__", "", clade_name))
+    colnames(gtdb_table) <- gsub("-report-Genera\\.breport$", "", colnames(gtdb_table))
   } 
   else if (level == "species") {
-    bracken <- bracken %>%
-      filter(str_detect(Classification, "s__")) %>%
-      mutate(Classification = sub(".*s__", "", Classification))
-    colnames(bracken) <- gsub("-report-Species\\.breport$", "", colnames(bracken))
+    gtdb_table <- gtdb_table %>%
+      filter(str_detect(clade_name, "s__")) %>%
+      mutate(clade_name = sub(".*s__", "", clade_name))
+    colnames(gtdb_table) <- gsub("-report-Species\\.breport$", "", colnames(gtdb_table))
   } 
   else {
     stop("Level must be one of: phylum, family, genera, species")
   }
 
-  # Automatically create a variable like "family_data" or "species_data"
-  var_name <- paste0(level, "_data")
-  assign(var_name, bracken, envir = .GlobalEnv)
+  return(gtdb_table)
 }
 
 
 ```
 
-```{r}
-setwd("C:/Users/Anahid/Desktop/Project-Howler (2)/Project-Howler (2) (2)/Project-Howler/mpa")
-
-load_bracken("genera")
-load_bracken("species")
-load_bracken("phylum")
-load_bracken("family")
-
-metadata <- read.csv("howlermeta.csv")  # Replace with your actual file name
-metadata 
-```
 
 ```{r}
 filter_by_abundance <- function(data, threshold = 0.01) {
@@ -183,8 +164,8 @@ phylum_rel_abund  <- calc_relative_abundance(phylum_tidy)
 ```{r}
 # First transform the data to wide format properly
 wide_data <- genus_rel_abund %>%
-  select(SampleID, Classification, Relative_Abundance) %>%
-  pivot_wider(names_from = Classification, values_from = Relative_Abundance , values_fill = 0) %>%
+  select(SampleID, clade_name, Relative_Abundance) %>%
+  pivot_wider(names_from = clade_name, values_from = Relative_Abundance , values_fill = 0) %>%
   column_to_rownames("SampleID")
 wide_data
 # Calculate Bray-Curtis dissimilarity matrix
@@ -258,7 +239,7 @@ print(p)
 
 # Calculate mean abundance per taxa across all samples
 mean_abundance <- genus_rel_abund %>%
-  group_by(Classification) %>%
+  group_by(clade_name) %>%
   summarize(mean_abundance = mean(Relative_Abundance)) %>%
   arrange(desc(mean_abundance)) %>%
   head(10)  # Top 10 most abundant genera
@@ -268,14 +249,14 @@ top10_genera <- mean_abundance$Classification[1:10]
 # Calculate abundance patterns across seasons for top 5 genera
 top5_genera <- mean_abundance$Classification[1:5]
 seasonal_patterns <- genus_rel_abund %>%
-  filter(Classification %in% top5_genera) %>%
-  group_by(Season, Classification) %>%
+  filter(clade_name %in% top5_genera) %>%
+  group_by(Season, clade_name) %>%
   summarize(mean_abundance = mean(Relative_Abundance),
             se = sd(Relative_Abundance)/sqrt(n())) %>%
   ungroup()
 
 p1 <- ggplot(mean_abundance,
-             aes(x = reorder(Classification, -mean_abundance),
+             aes(x = reorder(clade_name, -mean_abundance),
                  y = mean_abundance * 100)) +
   geom_bar(stat = "identity", fill = "#2C5985", width = 0.7) +
   labs(
@@ -300,7 +281,7 @@ p1 <- ggplot(mean_abundance,
   )
 
 # Create a faceted box plot for seasonal patterns
-p2 <- ggplot(genus_rel_abund %>% filter(Classification %in% top5_genera), 
+p2 <- ggplot(genus_rel_abund %>% filter(clade_name %in% top5_genera), 
              aes(x = Season, y = Relative_Abundance * 100, fill = Season)) +
   geom_boxplot() +
   facet_wrap(~Classification, scales = "free_y") +
@@ -334,8 +315,8 @@ p2 <- ggplot(genus_rel_abund %>% filter(Classification %in% top5_genera),
  # Print summary statistics
 print("Summary of top 5 Genera abundance by season:")
 seasonal_summary <- genus_rel_abund %>%
-  filter(Classification %in% top5_genera) %>%
-  group_by(Season, Classification) %>%
+  filter(clade_name %in% top5_genera) %>%
+  group_by(Season, clade_name) %>%
   summarize(
     mean_abundance = mean(Relative_Abundance),
     sd_abundance = sd(Relative_Abundance),
@@ -358,7 +339,7 @@ plot_dir <- "C:/Users/Anahid/Desktop/Project-Howler (2)/Project-Howler (2) (2)/P
 #####core genera cal
 # Calculate presence/absence for each genus per individual
 core_genera <- genus_rel_abund %>%
-  group_by(Individual, Classification) %>%
+  group_by(Individual, clade_name) %>%
   summarize(
     Prevalence = n_distinct(SampleID[Relative_Abundance > 0.005]) / n_distinct(SampleID) * 100,
     Mean_Abundance = mean(Relative_Abundance, na.rm = TRUE),
@@ -376,7 +357,7 @@ core_genera_filtered <- core_genera %>%
 ###### core species
 
 core_species <- species_rel_abund %>%
-  group_by(Individual, Classification) %>%
+  group_by(Individual, clade_name) %>%
   summarize(
     Prevalence = n_distinct(SampleID[Relative_Abundance > 0.005]) / n_distinct(SampleID) * 100,
     Mean_Abundance = mean(Relative_Abundance, na.rm = TRUE),
@@ -401,7 +382,7 @@ custom_colors <- c("#26456E", "#1c54a8", "#FFE04F", "#ffbb78","#EC6E1C", "#9F363
 
 # 2. Heatmap of prevalence
 p_core_g <- ggplot(core_genera_filtered, 
-             aes(x = reorder(Classification, -Prevalence), 
+             aes(x = reorder(clade_name, -Prevalence), 
                  y = Individual, 
                  fill = Prevalence)) +
   geom_tile() +
@@ -417,7 +398,7 @@ p_core_g <- ggplot(core_genera_filtered,
 
 
 p_core_s <- ggplot(core_species_filtered, 
-             aes(x = reorder(Classification, -Prevalence), 
+             aes(x = reorder(clade_name, -Prevalence), 
                  y = Individual, 
                  fill = Prevalence)) +
   geom_tile() +
@@ -451,19 +432,19 @@ ggsave(file.path(plot_dir, "core_species_abundance.jpg"),plot = p_core_s,width =
 ##filter for only core taxa
 
 common_g <- genus_rel_abund %>%
-  inner_join(core_genera_filtered %>% select(Individual, Classification)) %>%
-  filter(Classification %in% c("Faecalibacterium",  "Prevotella" ,  "Bacteroides" , "Segatella" ,  "Clostridium",      
+  inner_join(core_genera_filtered %>% select(Individual, clade_name)) %>%
+  filter(clade_name %in% c("Faecalibacterium",  "Prevotella" ,  "Bacteroides" , "Segatella" ,  "Clostridium",      
   "Escherichia","Blautia","Hoylesella","Roseburia",
  "Paenibacillus","Enterocloster","Bacillus",
  "Lachnoclostridium", "Pseudomonas","Ruminococcus"))
 
 
 common_s <- species_rel_abund %>%
-  inner_join(core_species_filtered %>% select(Individual, Classification)) %>%
-  filter(Classification %in% c("Faecalibacterium_prausnitzii",  "Segatella_copri" ,  "Prevotella_dentalis" , "Escherichia_coli" ,  "Roseburia_hominis", "Prevotella_intermedia"))
+  inner_join(core_species_filtered %>% select(Individual, clade_name)) %>%
+  filter(clade_name %in% c("Faecalibacterium_prausnitzii",  "Segatella_copri" ,  "Prevotella_dentalis" , "Escherichia_coli" ,  "Roseburia_hominis", "Prevotella_intermedia"))
 
 
-p_common_core_g <- ggplot(common_g, aes(x = Classification, y = Relative_Abundance * 100)) +
+p_common_core_g <- ggplot(common_g, aes(x = clade_name, y = Relative_Abundance * 100)) +
   geom_boxplot(aes(fill = Individual), alpha = 0.6, outlier.shape = NA) +
   geom_jitter(aes(color = Individual), 
               width = 0.2, 
@@ -493,7 +474,7 @@ p_common_core_g <- ggplot(common_g, aes(x = Classification, y = Relative_Abundan
 
 
 
-p_common_core_s <- ggplot(common_s, aes(x = Classification, y = Relative_Abundance * 100)) +
+p_common_core_s <- ggplot(common_s, aes(x = clade_name, y = Relative_Abundance * 100)) +
   geom_boxplot(aes(fill = Individual), alpha = 0.6, outlier.shape = NA) +
   geom_jitter(aes(color = Individual), 
               width = 0.2, 
@@ -545,10 +526,10 @@ genus_rel_abund <- genus_rel_abund %>%
   mutate(SampleID = factor(SampleID, levels = unique(SampleID)))
 
 genus_top10 <- genus_rel_abund %>%
-  filter(Classification %in% top10_genera)
+  filter(clade_name %in% top10_genera)
 
 stacked_faceted <- ggplot(genus_top10,
-  aes(x = SampleID, y = Relative_Abundance * 100, fill = Classification)) +
+  aes(x = SampleID, y = Relative_Abundance * 100, fill = clade_name)) +
   geom_col(width = 0.9, color = "white", linewidth = 0.15, position = "stack") +
   scale_fill_manual(values = my_palette) +
   labs(

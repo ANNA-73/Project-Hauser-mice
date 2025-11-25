@@ -1,3 +1,5 @@
 #Metaphla4
 for the "sgb_to_gtdb_profile.py" helper function. you should specify the same db for it that was used for your metaphlan profiling. you can find it commented on the first line of the mpa4 output tables.
 for example for one of my databases I had to pass: "sgb_to_gtdb_profile.py -i merged_metaphlan_table.txt -o gtdb_merged_table.txt -d /projects/b1180/db/metaphlan_db_2024/mpa_vJun23_CHOCOPhlAnSGB_202403.pkl " or it wouldn't have ran
+
+Important: you have to use MetaPhlAn version 4.1.1 and above to be able to pass the -d flag
