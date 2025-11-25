@@ -24,7 +24,15 @@ library(stringr)
 file_path <- "/projects/b1042/HartmannLab/Hauser-mice/output/mpa4"
 metadata_path <- "/projects/b1042/HartmannLab/Hauser-mice/input"
 
-gtdb_table <- read_tsv(file.path(file_path, "gtdb_merged_table.txt"), comment = "#")
+gtdb_table <- read_tsv(
+  file.path(file_path, "merged_metaphlan_table.txt"),
+  comment = "#",
+  col_names = TRUE
+) %>%
+  rename(clade_name = 1) %>%      # rename column 1 to "clade_name"
+  select(-profiled_PBS_S33)
+colnames(gtdb_table) <- gsub("profiled_", "", colnames(gtdb_table))
+
 metadata <- read_csv(file.path(metadata_path, "sample_metadata_final.csv"))
 
 gtdb_table
@@ -35,80 +43,51 @@ metadata
 
 load_mpa <- function(gtdb_table, level) {
  
-
   # Filter and clean depending on level
   if (level == "phylum") {
     gtdb_table <- gtdb_table %>%
       filter(str_detect(clade_name, "p__")) %>%
       mutate(clade_name = sub(".*p__", "", clade_name))
+  
   } 
   else if (level == "family") {
     gtdb_table <- gtdb_table %>%
       filter(str_detect(clade_name, "f__") & !str_detect(clade_name, "g__")) %>%
       mutate(clade_name = sub(".*f__", "", clade_name))
-    colnames(gtdb_table) <- gsub("-report-Family\\.breport$", "", colnames(gtdb_table))
   } 
   else if (level == "genera") {
     gtdb_table <- gtdb_table %>%
       filter(str_detect(clade_name, "g__") & !str_detect(clade_name, "s__")) %>%
       mutate(clade_name = sub(".*g__", "", clade_name))
-    colnames(gtdb_table) <- gsub("-report-Genera\\.breport$", "", colnames(gtdb_table))
+    
   } 
   else if (level == "species") {
     gtdb_table <- gtdb_table %>%
       filter(str_detect(clade_name, "s__")) %>%
       mutate(clade_name = sub(".*s__", "", clade_name))
-    colnames(gtdb_table) <- gsub("-report-Species\\.breport$", "", colnames(gtdb_table))
   } 
   else {
     stop("Level must be one of: phylum, family, genera, species")
   }
-
+  
+  
   return(gtdb_table)
 }
 
-
 ```
 
 
-```{r}
-filter_by_abundance <- function(data, threshold = 0.01) {
-  # Exclude non-numeric columns 
-  numeric_data <- data[, -1]
-
-  
-  keep_rows <- apply(numeric_data, 1, function(row) any(row > threshold))
-
-  
-  filtered_data <- data[keep_rows, ]
-
-  
-  colnames(filtered_data) <- gsub("-report-new\\.breport$", "", colnames(filtered_data))
-
-  # Count unique taxa
-  unique_count <- dplyr::n_distinct(filtered_data$Classification)
-  message("Unique taxa remaining: ", unique_count)
-
-  return(filtered_data)
-}
-
-
-```
 
 ```{r}
-filtered_phylum  <- filter_by_abundance(phylum_data, threshold = 0.01)
-filtered_family  <- filter_by_abundance(family_data, threshold = 0.01)
-filtered_genera  <- filter_by_abundance(genera_data, threshold = 0.01)
-filtered_species <- filter_by_abundance(species_data, threshold = 0.01)
-```
 
-```{r}
-# Turn a Bracken table into tidy long and join with metadata
 tidy_joined <- function(df, metadata,
-                         id_col = "Classification",
+                         id_col = "clade_name",
                          sample_col = "SampleID",
-                         value_col = "Abundance") {
+                         value_col = "relative_abundance") {
 
+  
+  # Remove "gtdb_" prefix from sample column names
+  colnames(df) <- gsub("^gtdb_", "", colnames(df))
   
   long_df <- df %>%
     pivot_longer(
@@ -116,33 +95,28 @@ tidy_joined <- function(df, metadata,
       names_to  = sample_col,
       values_to = value_col
     )
-
-  #  Join metadata on SampleID (
   
+  # Validate metadata has the sample column
   if (!(sample_col %in% names(metadata))) {
     stop("metadata must contain a '", sample_col, "' column.")
   }
+  
+  # Ensure matching data types before join
   long_df[[sample_col]] <- as.character(long_df[[sample_col]])
   metadata[[sample_col]] <- as.character(metadata[[sample_col]])
-
+  
   out <- long_df %>% left_join(metadata, by = sample_col)
   return(out)
 }
 
 ```
 
-```{r}
-species_tidy <- tidy_joined(filtered_species, metadata)
-genus_tidy   <- tidy_joined(filtered_genera,  metadata)   
-family_tidy  <- tidy_joined(filtered_family, metadata)
-phylum_tidy  <- tidy_joined(filtered_phylum, metadata)
-```
 
 ```{r}
 # Calculate total and relative abundance for each SampleID
 calc_relative_abundance <- function(df,
                                     sample_col = "SampleID",
-                                    abundance_col = "Abundance") {
+                                    abundance_col = "relative_abundance") {
   df %>%
     group_by(.data[[sample_col]]) %>%
     mutate(
@@ -151,86 +125,139 @@ calc_relative_abundance <- function(df,
     ) %>%
     ungroup()
 }
-
 ```
 
 ```{r}
-species_rel_abund <- calc_relative_abundance(species_tidy)
-genus_rel_abund   <- calc_relative_abundance(genus_tidy)
-family_rel_abund  <- calc_relative_abundance(family_tidy)
-phylum_rel_abund  <- calc_relative_abundance(phylum_tidy)
+# FAMILY LEVEL
+family_data <- gtdb_table %>%
+  load_mpa("family") %>%
+  tidy_joined(metadata) %>%
+  calc_relative_abundance()
+
+# GENUS LEVEL
+genus_data <- gtdb_table %>%
+  load_mpa("genera") %>%
+  tidy_joined(metadata) %>%
+  calc_relative_abundance()
+
+# SPECIES LEVEL
+species_data <- gtdb_table %>%
+  load_mpa("species") %>%
+  tidy_joined(metadata) %>%
+  calc_relative_abundance()
 ```
+
 
 ```{r}
 # First transform the data to wide format properly
-wide_data <- genus_rel_abund %>%
+wide_data <- genus_data %>%
   select(SampleID, clade_name, Relative_Abundance) %>%
-  pivot_wider(names_from = clade_name, values_from = Relative_Abundance , values_fill = 0) %>%
+  pivot_wider(names_from = clade_name, values_from = Relative_Abundance, values_fill = 0) %>%
   column_to_rownames("SampleID")
-wide_data
+
 # Calculate Bray-Curtis dissimilarity matrix
 bray_curtis_matrix <- vegdist(wide_data, method = "bray")
 
 # Make sure metadata matches the sample order
 metadata_ordered <- metadata[match(rownames(wide_data), metadata$SampleID),]
 
-# Now run PERMANOVA
-permanova_season <- adonis2(bray_curtis_matrix ~ Season, data = metadata_ordered , strata = metadata_ordered$Individual, permutations = 999)
-permanova_sex <- adonis2(bray_curtis_matrix ~ Sex, data = metadata_ordered,strata = metadata_ordered$Season, permutations = 999)
-permanova_individual <- adonis2(bray_curtis_matrix ~ Individual, data = metadata_ordered,strata = metadata_ordered$Season, permutations = 999)
-permanova_age <- adonis2(bray_curtis_matrix ~ Age, data = metadata_ordered , strata = metadata_ordered$Individual, permutations = 999)
-permanova_reproductive<- adonis2(bray_curtis_matrix ~ Reproductive, data = metadata_ordered , strata = metadata_ordered$Individual, permutations = 999)
-# Print results
-print("PERMANOVA results for Season:")
-print(permanova_season)
-print("\
-PERMANOVA results for Sex:")
-print(permanova_sex)
-print("\
-PERMANOVA results for Individual:")
-print(permanova_individual)
-print("\
-PERMANOVA results for age:")
-print(permanova_age)
-print("\
-PERMANOVA results for reproductive:")
-print(permanova_reproductive)
+# Run PERMANOVA tests
+permanova_treatment <- adonis2(bray_curtis_matrix ~ Treatment, data = metadata_ordered, strata = metadata_ordered$Day, permutations = 999)
+permanova_day <- adonis2(bray_curtis_matrix ~ Day, data = metadata_ordered, strata = metadata_ordered$Treatment, permutations = 999)
 
+# Print results
+print("PERMANOVA results for Treatment:")
+print(permanova_treatment)
+print("PERMANOVA results for Day:")
+print(permanova_day)
 
 # Extract R-squared values and p-values
-r2_values <- c(permanova_season$R2[1], permanova_individual$R2[1], permanova_sex$R2[1], permanova_age$R2[1],
-                  permanova_reproductive$R2[1])
-p_values <- c(permanova_season$`Pr(>F)`[1], permanova_individual$`Pr(>F)`[1], permanova_sex$`Pr(>F)`[1], 
-                 permanova_age$`Pr(>F)`[1], permanova_reproductive$`Pr(>F)`[1] )
+r2_values <- c(permanova_treatment$R2[1], permanova_day$R2[1])
+p_values <- c(permanova_treatment$`Pr(>F)`[1], permanova_day$`Pr(>F)`[1])
 
-# Create a data frame with the R-squared values and p-values from PERMANOVA
+# Create a data frame with the results
 permanova_results <- data.frame(
-  Factor = c("Season", "Individual", "Sex" ,"Age" , "Reproductive"),
-  R2 = r2_values,  # Replace with actual r2_values for pw_permanova_results
-  P = p_values  # Replace with actual p_values for pw_permanova_results
+  Factor = c("Treatment", "Day"),
+  R2 = r2_values,
+  P = p_values
 )
-permanova_results
 
 # Create the plot
-p <- ggplot(permanova_results, aes(x = reorder(Factor, R2), y = R2)) +
+p1 <- ggplot(permanova_results, aes(x = reorder(Factor, R2), y = R2)) +
     geom_bar(stat = "identity", fill = ifelse(permanova_results$P < 0.05, "steelblue", "gray")) +
-    geom_text(aes(label = sprintf("R\u00b2 = %.3f\
-p = %.3f", R2, P)), 
+    geom_text(aes(label = sprintf("R² = %.3f\np = %.3f", R2, P)), 
               vjust = -0.5, size = 4) +
     theme_minimal() +
-    labs(title = "PERMANOVA Results: Variance Explained by Each Factor",
+    labs(title = "PERMANOVA Results: Variance Explained by Treatment and Day",
          x = "Factor",
-         y = "R\u00b2 (Variance Explained)") +
+         y = "R² (Variance Explained)") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1),
           plot.title = element_text(hjust = 0.5)) +
-    ylim(0, max(permanova_results$R2) * 1.2)  # Add some space for the labels
-
-# Save the plot
-# ggsave("permanova_results_mpa_phylum.png", p, width = 10, height = 6, dpi = 300)
+    ylim(0, max(permanova_results$R2) * 1.2)
 
 # Display the plot
-print(p)
+print(p1)
+
+# Save the plot
+plots_path <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Ploths"
+# ggsave(
+#   filename = "permanova_results_mpa_Genera.png",
+#   plot = p1,
+#   path = plots_path,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+
 ```
+
+```{r}
+# Perform PCoA analysis
+pcoa <- cmdscale(bray_curtis_matrix, eig = TRUE, k = 2)
+
+# Extract coordinates
+pcoa_coords <- as.data.frame(pcoa$points)
+colnames(pcoa_coords) <- c("PC1", "PC2")
+
+# Calculate variance explained (as percentage)
+eigenvalues <- pcoa$eig
+var_explained <- eigenvalues / sum(eigenvalues) * 100
+
+# Add metadata
+pcoa_coords$SampleID <- rownames(pcoa_coords)
+pcoa_data <- pcoa_coords %>%
+  left_join(metadata, by = "SampleID")
+
+# Create the plot
+p2 <- ggplot(pcoa_data, aes(x = PC1, y = PC2, color = Day, shape = Treatment)) +
+  geom_point(size = 4, alpha = 0.7) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) +
+  scale_color_viridis_d(option = "turbo") +
+  labs(
+    title = "PCoA of Genus-level Bacterial Communities",
+    x = paste0("PC1 (", round(var_explained[1], 2), "%)"),
+    y = paste0("PC2 (", round(var_explained[2], 2), "%)")
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    legend.position = "right",
+    panel.grid.major = element_line(color = "lightgray", linewidth = 0.3)
+  )
+
+print(p2)
+
+# ggsave(
+#   filename = "PCoA_Genera_Hauser.png",
+#   plot = p2,
+#   path = plots_path,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+```
+
 
 ```{r}
 
