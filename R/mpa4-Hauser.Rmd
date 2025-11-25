@@ -1,0 +1,575 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(tidyheatmaps)
+library(reshape2)
+library(RColorBrewer)
+library(vegan)
+library(FactoMineR)
+library(pheatmap)
+library(viridis)
+library(tidyheatmaps)
+library(ggridges)
+library(stringr)
+library(networkD3)
+```
+
+```{r}
+
+load_bracken <- function(level) {
+  # Build filename
+  filename <- paste0("bracken_combined_", level)
+
+  # Read file and keep only bacteria
+  bracken <- read_tsv(filename, show_col_types = FALSE) %>%
+    filter(str_detect(Classification, "d__Bacteria"))
+
+  # Filter and clean depending on level
+  if (level == "phylum") {
+    bracken <- bracken %>%
+      filter(str_detect(Classification, "p__")) %>%
+      mutate(Classification = sub(".*p__", "", Classification))
+    colnames(bracken) <- gsub("-report-Phylum\\.breport$", "", colnames(bracken))
+  } 
+  else if (level == "family") {
+    bracken <- bracken %>%
+      filter(str_detect(Classification, "f__") & !str_detect(Classification, "g__")) %>%
+      mutate(Classification = sub(".*f__", "", Classification))
+    colnames(bracken) <- gsub("-report-Family\\.breport$", "", colnames(bracken))
+  } 
+  else if (level == "genera") {
+    bracken <- bracken %>%
+      filter(str_detect(Classification, "g__") & !str_detect(Classification, "s__")) %>%
+      mutate(Classification = sub(".*g__", "", Classification))
+    colnames(bracken) <- gsub("-report-Genera\\.breport$", "", colnames(bracken))
+  } 
+  else if (level == "species") {
+    bracken <- bracken %>%
+      filter(str_detect(Classification, "s__")) %>%
+      mutate(Classification = sub(".*s__", "", Classification))
+    colnames(bracken) <- gsub("-report-Species\\.breport$", "", colnames(bracken))
+  } 
+  else {
+    stop("Level must be one of: phylum, family, genera, species")
+  }
+
+  # Automatically create a variable like "family_data" or "species_data"
+  var_name <- paste0(level, "_data")
+  assign(var_name, bracken, envir = .GlobalEnv)
+}
+
+
+```
+
+```{r}
+setwd("C:/Users/Anahid/Desktop/Project-Howler (2)/Project-Howler (2) (2)/Project-Howler/mpa")
+
+load_bracken("genera")
+load_bracken("species")
+load_bracken("phylum")
+load_bracken("family")
+
+metadata <- read.csv("howlermeta.csv")  # Replace with your actual file name
+metadata 
+```
+
+```{r}
+filter_by_abundance <- function(data, threshold = 0.01) {
+  # Exclude non-numeric columns 
+  numeric_data <- data[, -1]
+
+  
+  keep_rows <- apply(numeric_data, 1, function(row) any(row > threshold))
+
+  
+  filtered_data <- data[keep_rows, ]
+
+  
+  colnames(filtered_data) <- gsub("-report-new\\.breport$", "", colnames(filtered_data))
+
+  # Count unique taxa
+  unique_count <- dplyr::n_distinct(filtered_data$Classification)
+  message("Unique taxa remaining: ", unique_count)
+
+  return(filtered_data)
+}
+
+
+```
+
+```{r}
+filtered_phylum  <- filter_by_abundance(phylum_data, threshold = 0.01)
+filtered_family  <- filter_by_abundance(family_data, threshold = 0.01)
+filtered_genera  <- filter_by_abundance(genera_data, threshold = 0.01)
+filtered_species <- filter_by_abundance(species_data, threshold = 0.01)
+```
+
+```{r}
+# Turn a Bracken table into tidy long and join with metadata
+tidy_joined <- function(df, metadata,
+                         id_col = "Classification",
+                         sample_col = "SampleID",
+                         value_col = "Abundance") {
+
+  
+  long_df <- df %>%
+    pivot_longer(
+      cols = -all_of(id_col),
+      names_to  = sample_col,
+      values_to = value_col
+    )
+
+  #  Join metadata on SampleID (
+  
+  if (!(sample_col %in% names(metadata))) {
+    stop("metadata must contain a '", sample_col, "' column.")
+  }
+  long_df[[sample_col]] <- as.character(long_df[[sample_col]])
+  metadata[[sample_col]] <- as.character(metadata[[sample_col]])
+
+  out <- long_df %>% left_join(metadata, by = sample_col)
+  return(out)
+}
+
+```
+
+```{r}
+species_tidy <- tidy_joined(filtered_species, metadata)
+genus_tidy   <- tidy_joined(filtered_genera,  metadata)   
+family_tidy  <- tidy_joined(filtered_family, metadata)
+phylum_tidy  <- tidy_joined(filtered_phylum, metadata)
+```
+
+```{r}
+# Calculate total and relative abundance for each SampleID
+calc_relative_abundance <- function(df,
+                                    sample_col = "SampleID",
+                                    abundance_col = "Abundance") {
+  df %>%
+    group_by(.data[[sample_col]]) %>%
+    mutate(
+      Total_Abundance = sum(as.numeric(.data[[abundance_col]]), na.rm = TRUE),
+      Relative_Abundance = as.numeric(.data[[abundance_col]]) / Total_Abundance
+    ) %>%
+    ungroup()
+}
+
+```
+
+```{r}
+species_rel_abund <- calc_relative_abundance(species_tidy)
+genus_rel_abund   <- calc_relative_abundance(genus_tidy)
+family_rel_abund  <- calc_relative_abundance(family_tidy)
+phylum_rel_abund  <- calc_relative_abundance(phylum_tidy)
+```
+
+```{r}
+# First transform the data to wide format properly
+wide_data <- genus_rel_abund %>%
+  select(SampleID, Classification, Relative_Abundance) %>%
+  pivot_wider(names_from = Classification, values_from = Relative_Abundance , values_fill = 0) %>%
+  column_to_rownames("SampleID")
+wide_data
+# Calculate Bray-Curtis dissimilarity matrix
+bray_curtis_matrix <- vegdist(wide_data, method = "bray")
+
+# Make sure metadata matches the sample order
+metadata_ordered <- metadata[match(rownames(wide_data), metadata$SampleID),]
+
+# Now run PERMANOVA
+permanova_season <- adonis2(bray_curtis_matrix ~ Season, data = metadata_ordered , strata = metadata_ordered$Individual, permutations = 999)
+permanova_sex <- adonis2(bray_curtis_matrix ~ Sex, data = metadata_ordered,strata = metadata_ordered$Season, permutations = 999)
+permanova_individual <- adonis2(bray_curtis_matrix ~ Individual, data = metadata_ordered,strata = metadata_ordered$Season, permutations = 999)
+permanova_age <- adonis2(bray_curtis_matrix ~ Age, data = metadata_ordered , strata = metadata_ordered$Individual, permutations = 999)
+permanova_reproductive<- adonis2(bray_curtis_matrix ~ Reproductive, data = metadata_ordered , strata = metadata_ordered$Individual, permutations = 999)
+# Print results
+print("PERMANOVA results for Season:")
+print(permanova_season)
+print("\
+PERMANOVA results for Sex:")
+print(permanova_sex)
+print("\
+PERMANOVA results for Individual:")
+print(permanova_individual)
+print("\
+PERMANOVA results for age:")
+print(permanova_age)
+print("\
+PERMANOVA results for reproductive:")
+print(permanova_reproductive)
+
+
+# Extract R-squared values and p-values
+r2_values <- c(permanova_season$R2[1], permanova_individual$R2[1], permanova_sex$R2[1], permanova_age$R2[1],
+                  permanova_reproductive$R2[1])
+p_values <- c(permanova_season$`Pr(>F)`[1], permanova_individual$`Pr(>F)`[1], permanova_sex$`Pr(>F)`[1], 
+                 permanova_age$`Pr(>F)`[1], permanova_reproductive$`Pr(>F)`[1] )
+
+# Create a data frame with the R-squared values and p-values from PERMANOVA
+permanova_results <- data.frame(
+  Factor = c("Season", "Individual", "Sex" ,"Age" , "Reproductive"),
+  R2 = r2_values,  # Replace with actual r2_values for pw_permanova_results
+  P = p_values  # Replace with actual p_values for pw_permanova_results
+)
+permanova_results
+
+# Create the plot
+p <- ggplot(permanova_results, aes(x = reorder(Factor, R2), y = R2)) +
+    geom_bar(stat = "identity", fill = ifelse(permanova_results$P < 0.05, "steelblue", "gray")) +
+    geom_text(aes(label = sprintf("R\u00b2 = %.3f\
+p = %.3f", R2, P)), 
+              vjust = -0.5, size = 4) +
+    theme_minimal() +
+    labs(title = "PERMANOVA Results: Variance Explained by Each Factor",
+         x = "Factor",
+         y = "R\u00b2 (Variance Explained)") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          plot.title = element_text(hjust = 0.5)) +
+    ylim(0, max(permanova_results$R2) * 1.2)  # Add some space for the labels
+
+# Save the plot
+# ggsave("permanova_results_mpa_phylum.png", p, width = 10, height = 6, dpi = 300)
+
+# Display the plot
+print(p)
+```
+
+```{r}
+
+#### overall abundance patherns
+
+
+# Calculate mean abundance per taxa across all samples
+mean_abundance <- genus_rel_abund %>%
+  group_by(Classification) %>%
+  summarize(mean_abundance = mean(Relative_Abundance)) %>%
+  arrange(desc(mean_abundance)) %>%
+  head(10)  # Top 10 most abundant genera
+
+top10_genera <- mean_abundance$Classification[1:10]
+
+# Calculate abundance patterns across seasons for top 5 genera
+top5_genera <- mean_abundance$Classification[1:5]
+seasonal_patterns <- genus_rel_abund %>%
+  filter(Classification %in% top5_genera) %>%
+  group_by(Season, Classification) %>%
+  summarize(mean_abundance = mean(Relative_Abundance),
+            se = sd(Relative_Abundance)/sqrt(n())) %>%
+  ungroup()
+
+p1 <- ggplot(mean_abundance,
+             aes(x = reorder(Classification, -mean_abundance),
+                 y = mean_abundance * 100)) +
+  geom_bar(stat = "identity", fill = "#2C5985", width = 0.7) +
+  labs(
+    title = "Top 10 Most Abundant Genera by Bracken",
+    x = "Genus",
+    y = "Mean Relative Abundance (%)"
+  ) +
+  theme_classic(base_size = 14, base_family = "sans") +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5, size = 20, face = "bold", margin = margin(b = 15)
+    ),
+    axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 10)),
+    axis.text.x = element_text(size = 12, angle = 45, hjust = 1, vjust = 1, color = "black"),
+    axis.text.y = element_text(size = 12, color = "black", face = "bold"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", linewidth = 0.8),
+    plot.margin = margin(10, 15, 10, 10)
+  )
+
+# Create a faceted box plot for seasonal patterns
+p2 <- ggplot(genus_rel_abund %>% filter(Classification %in% top5_genera), 
+             aes(x = Season, y = Relative_Abundance * 100, fill = Season)) +
+  geom_boxplot() +
+  facet_wrap(~Classification, scales = "free_y") +
+  scale_fill_manual(values = season_palette) +
+  labs(
+    title = "Seasonal Distribution of Top 5 Most Abundant Genera By Bracken",
+    y = "Relative Abundance (%)"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14, face = "bold"),
+    axis.text.y = element_text(size = 10, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(hjust = 0, face = "italic"),
+    legend.position = "right",
+    legend.key.size = unit(1, 'cm'),
+    axis.line.x = element_line(color = "#142D4A", linewidth = 0.8),
+    axis.line.y = element_line(color = "#142D4A", linewidth = 0.8),
+    strip.text = element_text(size = 12, face = "bold")
+  )
+
+
+
+
+
+ # Print summary statistics
+print("Summary of top 5 Genera abundance by season:")
+seasonal_summary <- genus_rel_abund %>%
+  filter(Classification %in% top5_genera) %>%
+  group_by(Season, Classification) %>%
+  summarize(
+    mean_abundance = mean(Relative_Abundance),
+    sd_abundance = sd(Relative_Abundance),
+    median_abundance = median(Relative_Abundance)
+  )
+
+p1
+p2
+plot_dir <- "C:/Users/Anahid/Desktop/Project-Howler (2)/Project-Howler (2) (2)/Project-Howler/plots"
+
+# ggsave(file.path(plot_dir, "bracken_Top_10_Most_Abundant_Species.jpg"),plot = p1, width = 12, height = 6, dpi = 300)
+# ggsave(file.path(plot_dir, "bracken_Seasonal Distribution of Top 5 Most Abundant Species .jpg")
+#        ,plot = p2, width = 10, height = 6, dpi = 300)
+
+
+
+```
+
+```{r}
+#####core genera cal
+# Calculate presence/absence for each genus per individual
+core_genera <- genus_rel_abund %>%
+  group_by(Individual, Classification) %>%
+  summarize(
+    Prevalence = n_distinct(SampleID[Relative_Abundance > 0.005]) / n_distinct(SampleID) * 100,
+    Mean_Abundance = mean(Relative_Abundance, na.rm = TRUE),
+    SD_Abundance = sd(Relative_Abundance, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Filter for core genera (present in >50% of samples)
+core_genera_filtered <- core_genera %>%
+  filter(Prevalence >= 80) %>%
+  arrange(Individual, desc(Mean_Abundance))
+
+
+
+###### core species
+
+core_species <- species_rel_abund %>%
+  group_by(Individual, Classification) %>%
+  summarize(
+    Prevalence = n_distinct(SampleID[Relative_Abundance > 0.005]) / n_distinct(SampleID) * 100,
+    Mean_Abundance = mean(Relative_Abundance, na.rm = TRUE),
+    SD_Abundance = sd(Relative_Abundance, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Filter for core genera (present in >50% of samples)
+core_species_filtered <- core_species %>%
+  filter(Prevalence >= 80) %>%
+  arrange(Individual, desc(Mean_Abundance))
+
+
+
+core_genera_list <- unique(core_genera_filtered$Classification)
+core_spicies_list <- unique(core_species_filtered$Classification)
+
+```
+
+```{r}
+custom_colors <- c("#26456E", "#1c54a8", "#FFE04F", "#ffbb78","#EC6E1C", "#9F3632")
+
+# 2. Heatmap of prevalence
+p_core_g <- ggplot(core_genera_filtered, 
+             aes(x = reorder(Classification, -Prevalence), 
+                 y = Individual, 
+                 fill = Prevalence)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = custom_colors) +
+  coord_fixed() +
+  labs(
+    title = "Prevalence of Highly Persistant Genera",
+    x = "Genus",
+    y = "Individual",
+    fill = "Prevalence (%)"
+  ) +
+  Howler_theme()
+
+
+p_core_s <- ggplot(core_species_filtered, 
+             aes(x = reorder(Classification, -Prevalence), 
+                 y = Individual, 
+                 fill = Prevalence)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = custom_colors) +
+  coord_fixed() +
+  labs(
+    title = "Prevalence of Highly Persistant Spicies",
+    x = "Species",
+    y = "Individual",
+    fill = "Prevalence (%)"
+  ) +
+  Howler_theme() +
+  theme(legend.position = "bottom") +   # put legend below plot
+  guides(
+    fill = guide_colourbar(
+      title.position = "top",
+      title.hjust    = 0.5,
+      barwidth       = unit(8, "cm"),   # make the bar long
+      barheight      = unit(0.5, "cm"), # and comfortably thick
+      label.theme    = element_text(size = 12, face = "bold")
+    )
+  ) 
+
+print(p_core_g)
+print(p_core_s)
+# ggsave(file.path(plot_dir, "core_genera_abundance.jpg"),plot = p_core_g,width = 12,height = 8,dpi = 300)
+ggsave(file.path(plot_dir, "core_species_abundance.jpg"),plot = p_core_s,width = 16,height = 10,dpi = 300)
+```
+
+```{r}
+##filter for only core taxa
+
+common_g <- genus_rel_abund %>%
+  inner_join(core_genera_filtered %>% select(Individual, Classification)) %>%
+  filter(Classification %in% c("Faecalibacterium",  "Prevotella" ,  "Bacteroides" , "Segatella" ,  "Clostridium",      
+  "Escherichia","Blautia","Hoylesella","Roseburia",
+ "Paenibacillus","Enterocloster","Bacillus",
+ "Lachnoclostridium", "Pseudomonas","Ruminococcus"))
+
+
+common_s <- species_rel_abund %>%
+  inner_join(core_species_filtered %>% select(Individual, Classification)) %>%
+  filter(Classification %in% c("Faecalibacterium_prausnitzii",  "Segatella_copri" ,  "Prevotella_dentalis" , "Escherichia_coli" ,  "Roseburia_hominis", "Prevotella_intermedia"))
+
+
+p_common_core_g <- ggplot(common_g, aes(x = Classification, y = Relative_Abundance * 100)) +
+  geom_boxplot(aes(fill = Individual), alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(aes(color = Individual), 
+              width = 0.2, 
+              size = 2) + 
+  scale_fill_manual(values = ind_palette) +
+  scale_color_manual(values = ind_palette) +
+  labs(
+    title = "Consensus Core Genera by Individual",
+    x = "Genus",
+    y = "Relative Abundance (%)",
+    fill = "Individual",
+    color = "Individual"
+  ) +
+  facet_wrap(~ Individual, scales = "free_x", ncol = 3) +
+  Howler_theme() +  # Apply base theme first
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 18, face = "bold", color = "black"),
+    strip.background = element_rect(fill = "gray90", color = "gray20"),
+    axis.text.x = element_text(size = 16,angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 16, face = "bold"),
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+    legend.title = element_text(size = 20, face = "bold"),
+    legend.text = element_text(size = 18)
+  )
+
+
+
+p_common_core_s <- ggplot(common_s, aes(x = Classification, y = Relative_Abundance * 100)) +
+  geom_boxplot(aes(fill = Individual), alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(aes(color = Individual), 
+              width = 0.2, 
+              size = 2) + 
+  scale_fill_manual(values = ind_palette) +
+  scale_color_manual(values = ind_palette) +
+  labs(
+    title = "Consensus Core Species by Individual",
+    x = "Species",
+    y = "Relative Abundance (%)",
+    fill = "Individual",
+    color = "Individual"
+  ) +
+  facet_wrap(~ Individual, scales = "free_x", ncol = 3) +
+  Howler_theme() +  # Apply base theme first
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 18, face = "bold", color = "black"),
+    strip.background = element_rect(fill = "gray90", color = "gray20"),
+    axis.text.x = element_text(size = 16,angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 16, face = "bold"),
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+    legend.title = element_text(size = 20, face = "bold"),
+    legend.text = element_text(size = 18)
+  )
+p_common_core_s <- p_common_core_s +
+  coord_cartesian(ylim = c(0, 20))
+
+p_common_core_s
+
+ggsave(file.path(plot_dir, "common_core_g.jpg"),plot = p_common_core_g,width = 24,height = 16,dpi = 300)
+ggsave(file.path(plot_dir, "common_core_s.jpg"),plot = p_common_core_s,width = 20,height = 16,dpi = 300)
+```
+
+```{r}
+### stack barplot, top10,  grouped by individual, facet
+
+individual_order <- c("Uno", "Dos", "Hugo", "Isa", "Jupiler", "Maia", "Melanie")
+Season_order <- c("Dry", "Intermidiate", "Rain")
+
+# Correctly set factor levels for Individual
+genus_rel_abund <- genus_rel_abund %>%
+  mutate(Individual = factor(Individual, levels = individual_order))
+
+# Arrange and reorder SampleID
+genus_rel_abund <- genus_rel_abund %>%
+  arrange(Individual, SampleID) %>%
+  mutate(SampleID = factor(SampleID, levels = unique(SampleID)))
+
+genus_top10 <- genus_rel_abund %>%
+  filter(Classification %in% top10_genera)
+
+stacked_faceted <- ggplot(genus_top10,
+  aes(x = SampleID, y = Relative_Abundance * 100, fill = Classification)) +
+  geom_col(width = 0.9, color = "white", linewidth = 0.15, position = "stack") +
+  scale_fill_manual(values = my_palette) +
+  labs(
+    title = "Stacked Bar Plot of Top 10 Most Abundant Genera",
+    x = "Sample ID",
+    y = "Relative Abundance (%)",
+    fill = "Genera"
+  ) +
+  facet_grid(. ~ Individual, scales = "free_x", space = "free_x") +
+  Howler_theme() +
+  theme(
+  strip.text = element_text(face = "bold", size = 16),
+  panel.spacing.x = unit(0.6, "lines"),
+  axis.text.x  = element_blank(),       # hides sample labels
+  axis.ticks.x = element_blank(),       # optional: hide ticks too
+  axis.title.x = element_text(size = 18, face = "bold"),
+  axis.title.y = element_text(size = 18, face = "bold"),
+  legend.title = element_text(size = 16, face = "bold"),
+  legend.text  = element_text(size = 16)
+)
+
+print(stacked_faceted)
+
+# ggsave(file.path(plot_dir, "Bracken_stackar_top10_G_Ind_ordered.jpg"),plot = stacked_faceted,width = 18,height = 14,dpi = 300)
+```
+
+```
+
+
+```{r}
+
+
+
+```
+
