@@ -637,4 +637,62 @@ print(p_baseline_log_pct)
 dev.off()
 
 ```
+```{r}
+## defining baseline for each mouse
+
+# Filter for Day -5 baseline and calculate mean relative abundance per Mouse per Genus
+baseline_mouse <- genus_data %>%
+  filter(Day == -5) %>%
+  group_by(Mouse, clade_name) %>%
+  summarize(
+    Mean_Relative_Abundance = mean(Relative_Abundance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Convert to wide format for heatmap (genera as rows, mice as columns)
+# Convert to percentage
+baseline_mouse_wide <- baseline_mouse %>%
+  mutate(Mean_Relative_Abundance = Mean_Relative_Abundance * 100) %>%
+  pivot_wider(names_from = Mouse, values_from = Mean_Relative_Abundance, values_fill = 0) %>%
+  column_to_rownames("clade_name")
+
+# Remove genera with zero abundance across all mice
+baseline_mouse_wide <- baseline_mouse_wide[rowSums(baseline_mouse_wide) > 0, ]
+
+# Filter by abundance threshold if needed
+abundance_threshold <- 0.1
+baseline_mouse_filtered <- baseline_mouse_wide[rowMeans(baseline_mouse_wide) > abundance_threshold, ]
+
+# Log10 transform
+baseline_mouse_log <- log10(baseline_mouse_filtered + 0.01)
+
+# Check range
+range(baseline_mouse_log)
+
+# Create heatmap - baseline per mouse
+p_baseline_mouse <- pheatmap(
+  as.matrix(baseline_mouse_log),
+  scale = "none",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "complete",
+  cluster_cols = TRUE,
+  color = viridis(100),
+  fontsize_row = 8,
+  fontsize_col = 12,
+  main = "Baseline (Day -5) Mean Genus Abundance per Mouse - Log10(%)",
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  border_color = NA,
+  angle_col = 0,
+  legend_breaks = c(-2, -1, 0, 1, 1.73),
+  legend_labels = c("0.01%", "0.1%", "1%", "10%", "~54%")
+)
+
+png(file.path(plots_path, "mice_mean_baseline_heatmap.png"), 
+    width = 18, height = 14, units = "in", res = 300)
+print(p_baseline_mouse)
+dev.off()
+
+```
 
