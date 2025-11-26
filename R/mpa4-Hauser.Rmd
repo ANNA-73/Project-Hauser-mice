@@ -148,9 +148,30 @@ species_data <- gtdb_table %>%
 ```
 
 
+
+```{r}
+## separating baseline from others
+
+full_genus_data <- genus_data %>%
+  mutate(Mouse = as.factor(Mouse)) 
+
+# 2. Baseline only (Day -5)
+baseline_data <- genus_data %>%
+  filter(Day == -5)%>%
+  mutate(Mouse = as.factor(Mouse)) 
+
+# 3. Post-treatment only (Days 0, 3, 10, 14)
+post_treatment_data <- genus_data %>%
+  filter(Day %in% c(0, 3, 10, 14)) %>%
+  mutate(Mouse = as.factor(Mouse)) 
+```
+
+
+
+#all samples
 ```{r}
 # First transform the data to wide format properly
-wide_data <- genus_data %>%
+wide_data <- full_genus_data %>%
   select(SampleID, clade_name, Relative_Abundance) %>%
   pivot_wider(names_from = clade_name, values_from = Relative_Abundance, values_fill = 0) %>%
   column_to_rownames("SampleID")
@@ -158,60 +179,311 @@ wide_data <- genus_data %>%
 # Calculate Bray-Curtis dissimilarity matrix
 bray_curtis_matrix <- vegdist(wide_data, method = "bray")
 
-# Make sure metadata matches the sample order
-metadata_ordered <- metadata[match(rownames(wide_data), metadata$SampleID),]
+# Match metadata to sample order - FIXED: use wide_data not wide_post
+metadata_all <- metadata %>%
+  filter(SampleID %in% rownames(wide_data)) %>%  # FIXED
+  mutate(Mouse = as.factor(Mouse)) %>%
+  arrange(match(SampleID, rownames(wide_data)))  # FIXED
 
-# Run PERMANOVA tests
-permanova_treatment <- adonis2(bray_curtis_matrix ~ Treatment, data = metadata_ordered, strata = metadata_ordered$Day, permutations = 999)
-permanova_day <- adonis2(bray_curtis_matrix ~ Day, data = metadata_ordered, strata = metadata_ordered$Treatment, permutations = 999)
-permanova_mouse <- adonis2(bray_curtis_matrix ~ Mouse, data = metadata_ordered, strata = metadata_ordered$Treatment, permutations = 999)
-# Print results
-print("PERMANOVA results for Treatment:")
-print(permanova_treatment)
-print("PERMANOVA results for Day:")
-print(permanova_day)
-print("PERMANOVA results for Mouse:")
-print(permanova_mouse)
+# PERMANOVA - FIXED: use bray_curtis_matrix not bray_post
+permanova_treatment_all <- adonis2(bray_curtis_matrix ~ Treatment,  # FIXED
+                                    data = metadata_all, 
+                                    strata = metadata_all$Mouse,
+                                    permutations = 999)
 
-# Extract R-squared values and p-values
-r2_values <- c(permanova_treatment$R2[1], permanova_day$R2[1], permanova_mouse$R2[1])
-p_values <- c(permanova_treatment$`Pr(>F)`[1], permanova_day$`Pr(>F)`[1], permanova_mouse$`Pr(>F)`[1])
+permanova_day_all <- adonis2(bray_curtis_matrix ~ Day,  # FIXED
+                              data = metadata_all, 
+                              strata = metadata_all$Mouse,
+                              permutations = 999)
 
-# Create a data frame with the results
+permanova_mouse_all <- adonis2(bray_curtis_matrix ~ Mouse,  # FIXED
+                                data = metadata_all,
+                                permutations = 999)
+
+print("=== FULL DATASET PERMANOVA (Days: -5, 0, 3, 10, 14) ===")
+print("Treatment effect (blocking by Mouse):")
+print(permanova_treatment_all)
+print("\nDay effect (blocking by Mouse):")
+print(permanova_day_all)
+print("\nMouse effect (individual variation):")
+print(permanova_mouse_all)
+
+# Create summary plot of PERMANOVA results
 permanova_results <- data.frame(
   Factor = c("Treatment", "Day", "Mouse"),
-  R2 = r2_values,
-  P = p_values
+  R2 = c(permanova_treatment_all$R2[1], 
+         permanova_day_all$R2[1],
+         permanova_mouse$R2[1]),
+  P_value = c(permanova_treatment_all$`Pr(>F)`[1], 
+              permanova_day_all$`Pr(>F)`[1],
+              permanova_mouse$`Pr(>F)`[1])
 )
 
-# Create the plot
-p1 <- ggplot(permanova_results, aes(x = reorder(Factor, R2), y = R2)) +
-    geom_bar(stat = "identity", fill = ifelse(permanova_results$P < 0.05, "steelblue", "gray")) +
-    geom_text(aes(label = sprintf("R² = %.3f\np = %.3f", R2, P)), 
-              vjust = -0.5, size = 4) +
-    theme_minimal() +
-    labs(title = "PERMANOVA Results: Variance Explained by Treatment and Day",
-         x = "Factor",
-         y = "R² (Variance Explained)") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          plot.title = element_text(hjust = 0.5)) +
-    ylim(0, max(permanova_results$R2) * 1.2)
+p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value < 0.05)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = sprintf("R² = %.3f\np = %.3f", R2, P_value)), 
+            vjust = -0.5, size = 4, fontface = "bold") +
+  scale_fill_manual(values = c("TRUE" = "lightblue", "FALSE" = "gray70"),
+                    labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+  labs(
+    title = "PERMANOVA Results: All Samples Microbiome ",
+    x = "",
+    y = "R² (Variance Explained)",
+    fill = "Significance"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12, face = "bold")
+  ) +
+  ylim(0, max(permanova_results$R2) * 1.25)
 
-# Display the plot
-print(p1)
+print(p_permanova)
 
 # Save the plot
 plots_path <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Plots"
 
-# ggsave(
-#   filename = "permanova_results_mpa_Genera.png",
-#   plot = p1,
-#   path = plots_path,
-#   width = 10,
-#   height = 6,
-#   dpi = 300
-# )
+ggsave(
+  filename = "permanova_results_all.png",
+  plot = p_permanova,
+  path = plots_path,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
 
+```
+#Baseline only
+```{r}
+## BASELINE only ( Day -5)
+## for this I 'll group by Mouse first then by clade to have 1 sample represent each mouse - mean of all samples for that mouse
+
+baseline_mouse_level <- baseline_data %>%
+  group_by(Mouse, clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance), .groups = "drop")
+
+print("Baseline data aggregated to mouse level:")
+print(head(baseline_mouse_level))
+
+#====================================================================================
+#======================================================================================
+
+top10_baseline <- baseline_mouse_level %>%
+  group_by(clade_name) %>%
+  summarize(mean_abundance = mean(mean_abundance)) %>%
+  arrange(desc(mean_abundance)) %>%
+  head(10)
+
+p_top10_baseline <- ggplot(top10_baseline,
+             aes(x = reorder(clade_name, -mean_abundance),
+                 y = mean_abundance * 100)) +
+  geom_bar(stat = "identity", fill = "#8B4513", width = 0.7) +
+  labs(
+    title = "Top 10 Most Abundant Genera - Baseline (Day -5)",
+    x = "Genus",
+    y = "Mean Relative Abundance (%)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  )
+
+print(p_top10_baseline)
+
+#====================================================================================
+#======================================================================================
+
+baseline_variation <- baseline_mouse_level %>%
+  group_by(clade_name) %>%
+  summarize(
+    mean_abundance = mean(mean_abundance),
+    sd_abundance = sd(mean_abundance),
+    cv = (sd_abundance / mean_abundance) * 100,
+    n_mice = n()
+  ) %>%
+  filter(mean_abundance > 0.001) %>%  # Filter out very low abundance
+  arrange(desc(mean_abundance))
+
+print("Coefficient of Variation for top genera at baseline:")
+print(head(baseline_variation, 20))
+
+#====================================================================================
+#======================================================================================
+
+
+baseline_top_genera <- baseline_mouse_level %>%
+  filter(clade_name %in% top10_baseline$clade_name)
+
+p_baseline_heatmap <- ggplot(baseline_top_genera, 
+                             aes(x = as.factor(Mouse), y = clade_name, fill = mean_abundance * 100)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(option = "plasma") +
+  labs(
+    title = "Baseline Microbiome Composition by Mouse (Day -5)",
+    subtitle = "Top 10 most abundant genera",
+    x = "Mouse ID",
+    y = "Genus",
+    fill = "Mean Relative\nAbundance (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+    axis.text.y = element_text(size = 10)
+  )
+
+print(p_baseline_heatmap)
+
+
+#========================================================================================
+#========================================================================================
+
+wide_baseline <- baseline_mouse_level %>%
+  pivot_wider(names_from = clade_name, values_from = mean_abundance, values_fill = 0) %>%
+  column_to_rownames("Mouse")
+
+# Calculate Bray-Curtis dissimilarity between mice
+bray_baseline <- vegdist(wide_baseline, method = "bray")
+
+# Summary statistics of between-mouse distances
+baseline_dist_summary <- data.frame(
+  min_distance = min(bray_baseline),
+  mean_distance = mean(bray_baseline),
+  max_distance = max(bray_baseline),
+  sd_distance = sd(bray_baseline)
+)
+
+print("Baseline inter-mouse Bray-Curtis dissimilarity:")
+print(baseline_dist_summary)
+
+# Convert distance object to matrix
+dist_matrix <- as.matrix(bray_baseline)
+
+# Convert to long format for ggplot
+dist_long <- dist_matrix %>%
+  as.data.frame() %>%
+  rownames_to_column("Mouse1") %>%
+  pivot_longer(-Mouse1, names_to = "Mouse2", values_to = "Distance") %>%
+  filter(as.numeric(Mouse1) > as.numeric(Mouse2))
+
+custom_colors <- c("#26456E", "#1c54a8", "#FFE04F")
+
+p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Distance)) +
+  geom_tile(color = "white", linewidth = 1.5) +
+  geom_text(aes(label = round(Distance, 3)), color = "black", size = 5, fontface = "bold") +
+  scale_fill_gradientn(colors = custom_colors, limits = c(0, max(dist_long$Distance))) +
+  labs(
+    title = "Pairwise Bray-Curtis Distances Between Mice at Baseline",
+    subtitle = "Mean Distance = 0.16",
+    x = "Mouse ID",
+    y = "Mouse ID",
+    fill = "Bray-Curtis\nDissimilarity"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 12, face = "bold"),
+    legend.title = element_text(size = 10, face = "bold"),
+    panel.grid = element_blank()
+  ) +
+  coord_fixed()
+
+print(p_distance_heatmap)
+
+
+# ggsave("baseline_distance_heatmap.png", p_distance_heatmap,
+#        path = plots_path, width = 8, height = 7, dpi = 300)
+
+# ggsave("p_top10_baseline.png", p_top10_baseline,
+#        path = plots_path, width = 8, height = 7, dpi = 300)
+
+```
+# Post treatment
+```{r}
+
+wide_post <- post_treatment_data %>%
+  select(SampleID, clade_name, Relative_Abundance) %>%
+  pivot_wider(names_from = clade_name, values_from = Relative_Abundance, values_fill = 0) %>%
+  column_to_rownames("SampleID")
+
+# Calculate Bray-Curtis dissimilarity matrix
+bray_post <- vegdist(wide_post, method = "bray")
+
+# Match metadata to sample order
+metadata_post <- metadata %>%
+  filter(SampleID %in% rownames(wide_post)) %>%
+  mutate(Mouse = as.factor(Mouse)) %>%
+  arrange(match(SampleID, rownames(wide_post)))
+
+permanova_treatment_post <- adonis2(bray_post ~ Treatment, 
+                                    data = metadata_post, 
+                                    strata = metadata_post$Mouse,  # Block by individual mouse
+                                    permutations = 999)
+
+permanova_day_post <- adonis2(bray_post ~ Day, 
+                              data = metadata_post, 
+                              strata = metadata_post$Mouse,  # Block by individual mouse
+                              permutations = 999)
+
+permanova_mouse <- adonis2(bray_post ~ Mouse,
+                          data = metadata_post,
+                          permutations = 999)
+
+print("=== POST-TREATMENT PERMANOVA ===")
+print("Treatment effect (blocking by Mouse):")
+print(permanova_treatment_post)
+print("\nDay effect (blocking by Mouse):")
+print(permanova_day_post)
+print("\nMouse effect (individual variation):")
+print(permanova_mouse)
+
+# Create summary plot of PERMANOVA results
+permanova_results <- data.frame(
+  Factor = c("Treatment", "Day", "Mouse"),
+  R2 = c(permanova_treatment_post$R2[1], 
+         permanova_day_post$R2[1],
+         permanova_mouse$R2[1]),
+  P_value = c(permanova_treatment_post$`Pr(>F)`[1], 
+              permanova_day_post$`Pr(>F)`[1],
+              permanova_mouse$`Pr(>F)`[1])
+)
+
+p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value < 0.05)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = sprintf("R² = %.3f\np = %.3f", R2, P_value)), 
+            vjust = -0.5, size = 4, fontface = "bold") +
+  scale_fill_manual(values = c("TRUE" = "#EC6E1C", "FALSE" = "gray70"),
+                    labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+  labs(
+    title = "PERMANOVA Results: Post-Treatment Microbiome ",
+    x = "",
+    y = "R² (Variance Explained)",
+    fill = "Significance"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12, face = "bold")
+  ) +
+  ylim(0, max(permanova_results$R2) * 1.25)
+
+print(p_permanova)
+
+# ggsave("post_treatment_permanova.png", p_permanova,
+#        path = plots_path, width = 10, height = 7, dpi = 300)
 ```
 
 ```{r}
@@ -261,7 +533,15 @@ print(p2)
 #   dpi = 300
 # )
 ```
+
+
+
+
+
 ```{r}
+
+###PCoA
+
 # Filter out Day -5
 genus_data_filtered <- genus_data %>%
   filter(Day != "0")
@@ -328,7 +608,7 @@ print(p_filtered)
 # )
 ```
 
-
+#### Overall abundance patterns
 ```{r}
 
 #### Overall abundance patterns
@@ -378,13 +658,20 @@ p3 <- ggplot(mean_abundance,
   )
 
 
-p4 <- ggplot(genus_data %>% filter(clade_name %in% top10_genera), 
+top3_genera <- mean_abundance %>%
+  filter(clade_name != "Klebsiella") %>%
+  head(3) %>%
+  pull(clade_name)
+
+# Plot 1: Top 3 genera with ylim 100
+p4_top3 <- ggplot(genus_data %>% filter(clade_name %in% top3_genera), 
              aes(x = Day, y = Relative_Abundance * 100, fill = Treatment)) +
   geom_boxplot() +
-  facet_wrap(~clade_name, scales = "free_y") +
+  facet_wrap(~clade_name) +
   scale_fill_brewer(palette = "Set2") +
+  coord_cartesian(ylim = c(0, 100)) +
   labs(
-    title = "Distribution of Top 10 Most Abundant Genera by Day and Treatment",
+    title = "Top 3 Most Abundant Genera by Day and Treatment",
     y = "Relative Abundance (%)"
   ) +
   theme_classic() +
@@ -403,20 +690,36 @@ p4 <- ggplot(genus_data %>% filter(clade_name %in% top10_genera),
     strip.text = element_text(size = 12, face = "bold")
   )
 
-# Print summary statistics
-print("Summary of top 10 Genera abundance by Day and Treatment:")
-treatment_day_summary <- genus_data %>%
-  filter(clade_name %in% top10_genera) %>%
-  group_by(Day, Treatment, clade_name) %>%
-  summarize(
-    mean_abundance = mean(Relative_Abundance),
-    sd_abundance = sd(Relative_Abundance),
-    median_abundance = median(Relative_Abundance)
+# Plot 2: Klebsiella only with ylim 30
+p4_kleb <- ggplot(genus_data %>% filter(clade_name == "Klebsiella"), 
+             aes(x = Day, y = Relative_Abundance * 100, fill = Treatment)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Set2") +
+  coord_cartesian(ylim = c(0, 30)) +
+  labs(
+    title = "Klebsiella Abundance by Day and Treatment",
+    y = "Relative Abundance (%)"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14, face = "bold"),
+    axis.text.y = element_text(size = 10, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+    axis.title.x = element_text(size = 18, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    legend.key.size = unit(1, 'cm'),
+    axis.line.x = element_line(color = "#142D4A", linewidth = 0.8),
+    axis.line.y = element_line(color = "#142D4A", linewidth = 0.8)
   )
-print(treatment_day_summary)
+
+p4_top3
+p4_kleb
 
 p3
-p4
+
 
 # ggsave(
 #   filename = "top_10_most_abundant_genera_hauser.png",
@@ -438,7 +741,7 @@ p4
 # )
 
 ```
-
+##### Core genera calculation
 ```{r}
 ##### Core genera calculation
 # Calculate presence/absence for each genus per treatment
@@ -475,6 +778,7 @@ core_genera_list <- unique(core_genera_filtered$clade_name)
 core_species_list <- unique(core_species_filtered$clade_name)
 
 ```
+###Heatmap of prevalence
 
 ```{r}
 custom_colors <- c("#26456E", "#1c54a8", "#FFE04F", "#ffbb78","#EC6E1C", "#9F3632")
@@ -567,6 +871,216 @@ print(p_core_s)
 
 ```
 
+```{r}
+top10_post_overall <- post_treatment_data %>%
+  group_by(clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance)) %>%
+  arrange(desc(mean_abundance)) %>%
+  head(10)
+
+p_top10_post_overall <- ggplot(top10_post_overall,
+             aes(x = reorder(clade_name, -mean_abundance),
+                 y = mean_abundance * 100)) +
+  geom_bar(stat = "identity", fill = "#228B22", width = 0.7) +
+  labs(
+    title = "Top 10 Most Abundant Genera - Post-Treatment",
+    subtitle = "Overall across all treatments and timepoints",
+    x = "Genus",
+    y = "Mean Relative Abundance (%)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)
+  )
+
+print(p_top10_post_overall)
+
+# ============================================================================
+# 2. TOP 10 MOST ABUNDANT GENERA - BY TREATMENT GROUP
+# ============================================================================
+
+# For each day, find top 10 genera overall
+top10_by_day <- post_treatment_data %>%
+  group_by(Day, clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance), .groups = "drop") %>%
+  group_by(Day) %>%
+  slice_max(order_by = mean_abundance, n = 10) %>%
+  ungroup()
+
+# Get the list of top 10 genera for each day
+top_genera_per_day <- top10_by_day %>%
+  select(Day, clade_name) %>%
+  distinct()
+
+# Now get treatment-specific values for those top 10 genera per day
+top10_with_treatments <- post_treatment_data %>%
+  inner_join(top_genera_per_day, by = c("Day", "clade_name")) %>%
+  group_by(Day, Treatment, clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance), .groups = "drop")
+
+# Create plot with facets by Day
+p_top10_by_day <- ggplot(top10_with_treatments,
+             aes(x = reorder(clade_name, mean_abundance), 
+                 y = mean_abundance * 100,
+                 fill = Treatment)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.8) +
+  scale_fill_brewer(palette = "Set1") +
+  facet_wrap(~Day, scales = "free", ncol = 2, 
+             labeller = labeller(Day = function(x) paste("Day", x))) +
+  labs(
+    title = "Top 10 Most Abundant Genera by Day",
+    subtitle = "Comparing treatment groups for each day's top 10 genera",
+    x = "Genus",
+    y = "Mean Relative Abundance (%)",
+    fill = "Treatment"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12, face = "italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 11, face = "bold"),
+    axis.text.y = element_text(size = 11, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray90"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11)
+  )
+
+print(p_top10_by_day)
+
+# ggsave("post_top10_by_day_with_treatments.png", p_top10_by_day, 
+#        path = plots_path, width = 16, height = 14, dpi = 300)
+
+# ============================================================================
+# 3. TEMPORAL DYNAMICS - BOXPLOTS
+# ============================================================================
+
+# Filter for top 10 overall genera
+post_top10_data <- post_treatment_data %>%
+  filter(clade_name %in% top10_post_overall$clade_name)
+
+p_temporal_boxplot <- ggplot(post_top10_data, 
+             aes(x = as.factor(Day), y = Relative_Abundance * 100, fill = Treatment)) +
+  geom_boxplot(outlier.size = 1) +
+  facet_wrap(~clade_name, scales = "free_y", ncol = 5) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(
+    title = "Temporal Dynamics of Top 10 Genera",
+    subtitle = "Sample-level variation shown, grouped by treatment",
+    x = "Day",
+    y = "Relative Abundance (%)",
+    fill = "Treatment"
+  ) +
+  theme_classic(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 9),
+    axis.text.y = element_text(size = 8),
+    strip.text = element_text(size = 10, face = "bold"),
+    legend.position = "bottom"
+  )
+
+print(p_temporal_boxplot)
+
+# ============================================================================
+# 4. TEMPORAL DYNAMICS - LINE PLOTS WITH MEAN ± SE
+# ============================================================================
+
+# Calculate mean and SE for each genus, treatment, day
+temporal_summary <- post_top10_data %>%
+  group_by(clade_name, Treatment, Day) %>%
+  summarize(
+    mean_abundance = mean(Relative_Abundance),
+    se = sd(Relative_Abundance) / sqrt(n()),
+    .groups = "drop"
+  )
+
+p_temporal_lines <- ggplot(temporal_summary, 
+             aes(x = Day, y = mean_abundance * 100, color = Treatment, group = Treatment)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = (mean_abundance - se) * 100, 
+                    ymax = (mean_abundance + se) * 100), 
+                width = 0.5, alpha = 0.7) +
+  facet_wrap(~clade_name, scales = "free_y", ncol = 5) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "Temporal Dynamics of Top 10 Genera (Mean ± SE)",
+    subtitle = "Trajectories over time by treatment group",
+    x = "Day",
+    y = "Mean Relative Abundance (%)",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(size = 9),
+    axis.text.y = element_text(size = 8),
+    strip.text = element_text(size = 10, face = "bold"),
+    legend.position = "bottom"
+  )
+
+print(p_temporal_lines)
+
+# ============================================================================
+# 5. INDIVIDUAL MOUSE TRAJECTORIES (for key genera)
+# ============================================================================
+
+top4_genera <- top10_post_overall$clade_name[1:4]
+
+# Calculate mean and SD for each genus, treatment, day
+temporal_summary_top4 <- post_treatment_data %>%
+  filter(clade_name %in% top4_genera) %>%
+  group_by(clade_name, Treatment, Day) %>%
+  summarize(
+    mean_abundance = mean(Relative_Abundance),
+    sd_abundance = sd(Relative_Abundance),
+    n = n(),
+    .groups = "drop"
+  )
+
+# Plot with lines for treatments
+p_temporal_top4 <- ggplot(temporal_summary_top4, 
+             aes(x = Day, y = mean_abundance * 100, 
+                 color = Treatment, group = Treatment)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = (mean_abundance - sd_abundance) * 100, 
+                    ymax = (mean_abundance + sd_abundance) * 100), 
+                width = 0.8, linewidth = 0.8, alpha = 0.7) +
+  facet_wrap(~clade_name, scales = "free_y", ncol = 2) +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_continuous(breaks = c(0, 3, 10, 14)) +
+  labs(
+    title = "Temporal Dynamics of Top 4 Most Abundant Genera",
+    subtitle = "Mean ± SD by treatment group",
+    x = "Day",
+    y = "Mean Relative Abundance (%)",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12, face = "italic"),
+    axis.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    strip.text = element_text(size = 13, face = "bold"),
+    strip.background = element_rect(fill = "gray90"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray90", linewidth = 0.3)
+  )
+
+print(p_temporal_top4)
+
+```
 
 ```{r}
 # Filter for Day -5 baseline samples only
