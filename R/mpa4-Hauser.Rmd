@@ -188,7 +188,6 @@ metadata_all <- metadata %>%
 # PERMANOVA - FIXED: use bray_curtis_matrix not bray_post
 permanova_treatment_all <- adonis2(bray_curtis_matrix ~ Treatment,  # FIXED
                                     data = metadata_all, 
-                                    strata = metadata_all$Mouse,
                                     permutations = 999)
 
 permanova_day_all <- adonis2(bray_curtis_matrix ~ Day,  # FIXED
@@ -213,10 +212,10 @@ permanova_results <- data.frame(
   Factor = c("Treatment", "Day", "Mouse"),
   R2 = c(permanova_treatment_all$R2[1], 
          permanova_day_all$R2[1],
-         permanova_mouse$R2[1]),
+         permanova_mouse_all$R2[1]),
   P_value = c(permanova_treatment_all$`Pr(>F)`[1], 
               permanova_day_all$`Pr(>F)`[1],
-              permanova_mouse$`Pr(>F)`[1])
+              permanova_mouse_all$`Pr(>F)`[1])
 )
 
 p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value < 0.05)) +
@@ -247,14 +246,14 @@ print(p_permanova)
 # Save the plot
 plots_path <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Plots"
 
-ggsave(
-  filename = "permanova_results_all.png",
-  plot = p_permanova,
-  path = plots_path,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
+# ggsave(
+#   filename = "permanova_results_all.png",
+#   plot = p_permanova,
+#   path = plots_path,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
 
 ```
 #Baseline only
@@ -335,7 +334,7 @@ p_baseline_heatmap <- ggplot(baseline_top_genera,
   theme(
     plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
     plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
-    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+    axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),
     axis.text.y = element_text(size = 10)
   )
 
@@ -366,14 +365,25 @@ print(baseline_dist_summary)
 # Convert distance object to matrix
 dist_matrix <- as.matrix(bray_baseline)
 
-# Convert to long format for ggplot
+# Convert to long format for ggplot - only lower triangle
 dist_long <- dist_matrix %>%
   as.data.frame() %>%
   rownames_to_column("Mouse1") %>%
   pivot_longer(-Mouse1, names_to = "Mouse2", values_to = "Distance") %>%
-  filter(as.numeric(Mouse1) > as.numeric(Mouse2))
+  filter(Mouse1 != Mouse2) %>%  # Remove diagonal
+  rowwise() %>%
+  mutate(
+    min_mouse = min(c(Mouse1, Mouse2)),
+    max_mouse = max(c(Mouse1, Mouse2))
+  ) %>%
+  ungroup() %>%
+  distinct(min_mouse, max_mouse, .keep_all = TRUE) %>%
+  select(Mouse1, Mouse2, Distance)
 
 custom_colors <- c("#26456E", "#1c54a8", "#FFE04F")
+
+# Calculate mean distance for subtitle
+mean_dist <- round(baseline_dist_summary$mean_distance, 3)
 
 p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Distance)) +
   geom_tile(color = "white", linewidth = 1.5) +
@@ -381,7 +391,7 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
   scale_fill_gradientn(colors = custom_colors, limits = c(0, max(dist_long$Distance))) +
   labs(
     title = "Pairwise Bray-Curtis Distances Between Mice at Baseline",
-    subtitle = "Mean Distance = 0.16",
+    subtitle = paste0("Mean Distance = ", mean_dist),  # DYNAMIC
     x = "Mouse ID",
     y = "Mouse ID",
     fill = "Bray-Curtis\nDissimilarity"
@@ -390,7 +400,8 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
   theme(
     plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
     plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
-    axis.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle= 90, size = 12, face = "bold"),
+    axis.text.y = element_text(angle= 0, size = 12, face = "bold"),
     axis.title = element_text(size = 12, face = "bold"),
     legend.title = element_text(size = 10, face = "bold"),
     panel.grid = element_blank()
@@ -407,6 +418,86 @@ print(p_distance_heatmap)
 #        path = plots_path, width = 8, height = 7, dpi = 300)
 
 ```
+##what abt day 0?
+
+```{r}
+dayzero_data <- genus_data %>%
+  filter(Day == 3)%>%
+  mutate(Mouse = as.factor(Mouse)) 
+
+baseline_mouse_level <- dayzero_data %>%
+  group_by(Mouse, clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance), .groups = "drop")
+
+wide_baseline <- baseline_mouse_level %>%
+  pivot_wider(names_from = clade_name, values_from = mean_abundance, values_fill = 0) %>%
+  column_to_rownames("Mouse")
+
+# Calculate Bray-Curtis dissimilarity between mice
+bray_baseline <- vegdist(wide_baseline, method = "bray")
+
+# Summary statistics of between-mouse distances
+baseline_dist_summary <- data.frame(
+  min_distance = min(bray_baseline),
+  mean_distance = mean(bray_baseline),
+  max_distance = max(bray_baseline),
+  sd_distance = sd(bray_baseline)
+)
+
+print("Baseline inter-mouse Bray-Curtis dissimilarity:")
+print(baseline_dist_summary)
+
+# Convert distance object to matrix
+dist_matrix <- as.matrix(bray_baseline)
+
+# Convert to long format for ggplot - only lower triangle
+dist_long <- dist_matrix %>%
+  as.data.frame() %>%
+  rownames_to_column("Mouse1") %>%
+  pivot_longer(-Mouse1, names_to = "Mouse2", values_to = "Distance") %>%
+  filter(Mouse1 != Mouse2) %>%  # Remove diagonal
+  rowwise() %>%
+  mutate(
+    min_mouse = min(c(Mouse1, Mouse2)),
+    max_mouse = max(c(Mouse1, Mouse2))
+  ) %>%
+  ungroup() %>%
+  distinct(min_mouse, max_mouse, .keep_all = TRUE) %>%
+  select(Mouse1, Mouse2, Distance)
+
+custom_colors <- c("#26456E", "#1c54a8", "#FFE04F")
+
+# Calculate mean distance for subtitle
+mean_dist <- round(baseline_dist_summary$mean_distance, 3)
+
+p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Distance)) +
+  geom_tile(color = "white", linewidth = 1.5) +
+  geom_text(aes(label = round(Distance, 3)), color = "black", size = 5, fontface = "bold") +
+  scale_fill_gradientn(colors = custom_colors, limits = c(0,0.5) ) +
+  labs(
+    title = "Pairwise Bray-Curtis Distances Between Mice at Baseline",
+    subtitle = paste0("Mean Distance = ", mean_dist),  # DYNAMIC
+    x = "Mouse ID",
+    y = "Mouse ID",
+    fill = "Bray-Curtis\nDissimilarity"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.text.x = element_text(angle= 90, size = 12, face = "bold"),
+    axis.text.y = element_text(angle= 0, size = 12, face = "bold"),
+    axis.title = element_text(size = 12, face = "bold"),
+    legend.title = element_text(size = 10, face = "bold"),
+    panel.grid = element_blank()
+  ) +
+  coord_fixed()
+
+print(p_distance_heatmap)
+
+```
+
+
 # Post treatment
 ```{r}
 
@@ -881,7 +972,7 @@ top10_post_overall <- post_treatment_data %>%
 p_top10_post_overall <- ggplot(top10_post_overall,
              aes(x = reorder(clade_name, -mean_abundance),
                  y = mean_abundance * 100)) +
-  geom_bar(stat = "identity", fill = "#228B22", width = 0.7) +
+  geom_bar(stat = "identity", fill = "#4D7EAB", width = 0.7) +
   labs(
     title = "Top 10 Most Abundant Genera - Post-Treatment",
     subtitle = "Overall across all treatments and timepoints",
@@ -897,8 +988,9 @@ p_top10_post_overall <- ggplot(top10_post_overall,
 
 print(p_top10_post_overall)
 
+
 # ============================================================================
-# 2. TOP 10 MOST ABUNDANT GENERA - BY TREATMENT GROUP
+# TOP 10 MOST ABUNDANT GENERA - BY TREATMENT GROUP
 # ============================================================================
 
 # For each day, find top 10 genera overall
@@ -955,130 +1047,70 @@ print(p_top10_by_day)
 # ggsave("post_top10_by_day_with_treatments.png", p_top10_by_day, 
 #        path = plots_path, width = 16, height = 14, dpi = 300)
 
-# ============================================================================
-# 3. TEMPORAL DYNAMICS - BOXPLOTS
-# ============================================================================
 
-# Filter for top 10 overall genera
-post_top10_data <- post_treatment_data %>%
-  filter(clade_name %in% top10_post_overall$clade_name)
 
-p_temporal_boxplot <- ggplot(post_top10_data, 
-             aes(x = as.factor(Day), y = Relative_Abundance * 100, fill = Treatment)) +
-  geom_boxplot(outlier.size = 1) +
-  facet_wrap(~clade_name, scales = "free_y", ncol = 5) +
-  scale_fill_brewer(palette = "Set1") +
-  labs(
-    title = "Temporal Dynamics of Top 10 Genera",
-    subtitle = "Sample-level variation shown, grouped by treatment",
-    x = "Day",
-    y = "Relative Abundance (%)",
-    fill = "Treatment"
-  ) +
-  theme_classic(base_size = 10) +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
-    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 9),
-    axis.text.y = element_text(size = 8),
-    strip.text = element_text(size = 10, face = "bold"),
-    legend.position = "bottom"
-  )
-
-print(p_temporal_boxplot)
 
 # ============================================================================
-# 4. TEMPORAL DYNAMICS - LINE PLOTS WITH MEAN ± SE
+#  INDIVIDUAL MOUSE TRAJECTORIES 
 # ============================================================================
+nature_colors <- c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341")
 
-# Calculate mean and SE for each genus, treatment, day
-temporal_summary <- post_top10_data %>%
-  group_by(clade_name, Treatment, Day) %>%
-  summarize(
-    mean_abundance = mean(Relative_Abundance),
-    se = sd(Relative_Abundance) / sqrt(n()),
-    .groups = "drop"
-  )
-
-p_temporal_lines <- ggplot(temporal_summary, 
-             aes(x = Day, y = mean_abundance * 100, color = Treatment, group = Treatment)) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2) +
-  geom_errorbar(aes(ymin = (mean_abundance - se) * 100, 
-                    ymax = (mean_abundance + se) * 100), 
-                width = 0.5, alpha = 0.7) +
-  facet_wrap(~clade_name, scales = "free_y", ncol = 5) +
-  scale_color_brewer(palette = "Set1") +
-  labs(
-    title = "Temporal Dynamics of Top 10 Genera (Mean ± SE)",
-    subtitle = "Trajectories over time by treatment group",
-    x = "Day",
-    y = "Mean Relative Abundance (%)",
-    color = "Treatment"
-  ) +
-  theme_classic(base_size = 10) +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
-    axis.text.x = element_text(size = 9),
-    axis.text.y = element_text(size = 8),
-    strip.text = element_text(size = 10, face = "bold"),
-    legend.position = "bottom"
-  )
-
-print(p_temporal_lines)
-
-# ============================================================================
-# 5. INDIVIDUAL MOUSE TRAJECTORIES (for key genera)
-# ============================================================================
-
-top4_genera <- top10_post_overall$clade_name[1:4]
-
-# Calculate mean and SD for each genus, treatment, day
-temporal_summary_top4 <- post_treatment_data %>%
-  filter(clade_name %in% top4_genera) %>%
-  group_by(clade_name, Treatment, Day) %>%
-  summarize(
-    mean_abundance = mean(Relative_Abundance),
-    sd_abundance = sd(Relative_Abundance),
-    n = n(),
-    .groups = "drop"
-  )
-
-# Plot with lines for treatments
-p_temporal_top4 <- ggplot(temporal_summary_top4, 
-             aes(x = Day, y = mean_abundance * 100, 
+p_temporal_top4_nature <- ggplot(temporal_summary_top4,
+             aes(x = Day, y = mean_abundance * 100,
                  color = Treatment, group = Treatment)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 3) +
-  geom_errorbar(aes(ymin = (mean_abundance - sd_abundance) * 100, 
-                    ymax = (mean_abundance + sd_abundance) * 100), 
-                width = 0.8, linewidth = 0.8, alpha = 0.7) +
+  geom_line(linewidth = 0.8, alpha = 0.9) +
+  geom_point(size = 2.5, alpha = 0.9) +
+  geom_errorbar(aes(ymin = (mean_abundance - sem_abundance) * 100,
+                    ymax = (mean_abundance + sem_abundance) * 100),
+                width = 0.6, linewidth = 0.6, alpha = 0.7) +
   facet_wrap(~clade_name, scales = "free_y", ncol = 2) +
-  scale_color_brewer(palette = "Set1") +
+  scale_color_manual(values = nature_colors) +
   scale_x_continuous(breaks = c(0, 3, 10, 14)) +
   labs(
-    title = "Temporal Dynamics of Top 4 Most Abundant Genera",
-    subtitle = "Mean ± SD by treatment group",
+    title = "Temporal dynamics of dominant genera",
     x = "Day",
-    y = "Mean Relative Abundance (%)",
+    y = "Mean relative abundance (%)",
     color = "Treatment"
   ) +
-  theme_classic(base_size = 14) +
+  theme_bw(base_size = 10) +  
   theme(
-    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 12, face = "italic"),
-    axis.text = element_text(size = 12, face = "bold"),
-    axis.title = element_text(size = 14, face = "bold"),
-    strip.text = element_text(size = 13, face = "bold"),
-    strip.background = element_rect(fill = "gray90"),
+    # Plot title
+    plot.title = element_text(hjust = 0, size = 11, face = "bold",
+                              margin = margin(b = 10)),
+    # Axes
+    axis.title = element_text(size = 10, face = "bold", color = "black"),
+    axis.text = element_text(size = 9, color = "black"),
+    axis.line = element_line(color = "black", linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.5),
+    # Facet strips
+    strip.text = element_text(size = 10, face = "bold.italic", color = "black"),
+    strip.background = element_blank(),
+    # Legend
     legend.position = "bottom",
-    legend.title = element_text(size = 13, face = "bold"),
-    legend.text = element_text(size = 12),
-    panel.grid.major = element_line(color = "gray90", linewidth = 0.3)
+    legend.title = element_text(size = 9, face = "bold"),
+    legend.text = element_text(size = 9),
+    legend.key.size = unit(0.8, "lines"),
+    legend.background = element_blank(),
+    legend.box.background = element_blank(),
+    # Grid and background
+    panel.grid.major = element_line(color = "gray90", linewidth = 0.3),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", linewidth = 0.5, fill = NA),
+    panel.background = element_rect(fill = "white"),
+    plot.background = element_rect(fill = "white", color = NA),
+    # Spacing
+    plot.margin = margin(10, 10, 10, 10)
   )
 
-print(p_temporal_top4)
+print(p_temporal_top4_nature)
+
+
+ggsave("temporal_dynamics_nature_style.png", p_temporal_top4_nature,
+       path = plots_path, width = 180, height = 150, units = "mm", 
+       dpi = 600, device = "png", type = "cairo")
+
+
+
 
 ```
 
@@ -1114,7 +1146,7 @@ baseline_wide_filtered <- baseline_wide_filtered[, rownames(sample_annotation)]
 
 # Define annotation colors
 annotation_colors <- list(
-  Treatment = c(CK = "#E41A1C", CZ = "#377EB8", V = "#4DAF4A", ZK = "#984EA3"),
+  Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341"),
   Mouse = c("1" = "#66C2A5", "2" = "#FC8D62", "3" = "#8DA0CB", "5" = "#E78AC3")
 )
 
