@@ -164,20 +164,22 @@ metadata_ordered <- metadata[match(rownames(wide_data), metadata$SampleID),]
 # Run PERMANOVA tests
 permanova_treatment <- adonis2(bray_curtis_matrix ~ Treatment, data = metadata_ordered, strata = metadata_ordered$Day, permutations = 999)
 permanova_day <- adonis2(bray_curtis_matrix ~ Day, data = metadata_ordered, strata = metadata_ordered$Treatment, permutations = 999)
-
+permanova_mouse <- adonis2(bray_curtis_matrix ~ Mouse, data = metadata_ordered, strata = metadata_ordered$Treatment, permutations = 999)
 # Print results
 print("PERMANOVA results for Treatment:")
 print(permanova_treatment)
 print("PERMANOVA results for Day:")
 print(permanova_day)
+print("PERMANOVA results for Mouse:")
+print(permanova_mouse)
 
 # Extract R-squared values and p-values
-r2_values <- c(permanova_treatment$R2[1], permanova_day$R2[1])
-p_values <- c(permanova_treatment$`Pr(>F)`[1], permanova_day$`Pr(>F)`[1])
+r2_values <- c(permanova_treatment$R2[1], permanova_day$R2[1], permanova_mouse$R2[1])
+p_values <- c(permanova_treatment$`Pr(>F)`[1], permanova_day$`Pr(>F)`[1], permanova_mouse$`Pr(>F)`[1])
 
 # Create a data frame with the results
 permanova_results <- data.frame(
-  Factor = c("Treatment", "Day"),
+  Factor = c("Treatment", "Day", "Mouse"),
   R2 = r2_values,
   P = p_values
 )
@@ -199,7 +201,8 @@ p1 <- ggplot(permanova_results, aes(x = reorder(Factor, R2), y = R2)) +
 print(p1)
 
 # Save the plot
-plots_path <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Ploths"
+plots_path <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Plots"
+
 # ggsave(
 #   filename = "permanova_results_mpa_Genera.png",
 #   plot = p1,
@@ -227,6 +230,7 @@ var_explained <- eigenvalues / sum(eigenvalues) * 100
 pcoa_coords$SampleID <- rownames(pcoa_coords)
 pcoa_data <- pcoa_coords %>%
   left_join(metadata, by = "SampleID")
+
 
 # Create the plot
 p2 <- ggplot(pcoa_data, aes(x = PC1, y = PC2, color = Day, shape = Treatment)) +
@@ -314,14 +318,14 @@ p_filtered <- ggplot(pcoa_data_filtered, aes(x = PC1, y = PC2, color = Day, shap
 
 print(p_filtered)
 
-ggsave(
-  filename = "PCoA_Genera_Hauser_day0_removed.png",
-  plot = p_filtered,
-  path = plots_path,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
+# ggsave(
+#   filename = "PCoA_Genera_Hauser_day0_removed.png",
+#   plot = p_filtered,
+#   path = plots_path,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
 ```
 
 
@@ -414,14 +418,14 @@ print(treatment_day_summary)
 p3
 p4
 
-ggsave(
-  filename = "top_10_most_abundant_genera_hauser.png",
-  plot = p3,
-  path = plots_path,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
+# ggsave(
+#   filename = "top_10_most_abundant_genera_hauser.png",
+#   plot = p3,
+#   path = plots_path,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
 
 
 # ggsave(
@@ -570,65 +574,67 @@ baseline_data <- genus_data %>%
   filter(Day == -5)
 
 # Create wide matrix for heatmap (genera as rows, samples as columns)
+# Multiply by 100 to convert to percentage
 baseline_wide <- baseline_data %>%
   select(SampleID, clade_name, Relative_Abundance) %>%
+  mutate(Relative_Abundance = Relative_Abundance * 100) %>%  # Convert to percent
   pivot_wider(names_from = SampleID, values_from = Relative_Abundance, values_fill = 0) %>%
   column_to_rownames("clade_name")
 
 # Remove genera with zero abundance across all samples
 baseline_wide <- baseline_wide[rowSums(baseline_wide) > 0, ]
 
-# Optional: Filter to genera with mean abundance > threshold for cleaner visualization
-# Adjust threshold as needed (e.g., 0.001 = 0.1%)
-abundance_threshold <- 0.001
+# Filter to genera with mean abundance > threshold (now in %, so 0.1 = 0.1%)
+abundance_threshold <- 0.01
 baseline_wide_filtered <- baseline_wide[rowMeans(baseline_wide) > abundance_threshold, ]
 
-# Get sample metadata for annotation
+# Get sample metadata for annotation - ordered by Mouse
 sample_annotation <- baseline_data %>%
-  select(SampleID, Treatment) %>%
+  select(SampleID, Treatment, Mouse) %>%
   distinct() %>%
+  arrange(Mouse, Treatment) %>%
   column_to_rownames("SampleID")
 
-# Create heatmap with pheatmap
-p_baseline <- pheatmap(
-  as.matrix(baseline_wide_filtered),
-  scale = "row",  # Scale by row to highlight variation across samples
-  clustering_distance_rows = "euclidean",
-  clustering_distance_cols = "euclidean",
-  clustering_method = "complete",
-  annotation_col = sample_annotation,
-  color = colorRampPalette(c("#26456E", "#1c54a8", "white", "#FFE04F", "#EC6E1C"))(100),
-  fontsize_row = 8,
-  fontsize_col = 10,
-  main = "Baseline (Day -5) Genus Relative Abundance Across Samples",
-  show_rownames = TRUE,
-  show_colnames = TRUE,
-  border_color = NA
+# Reorder columns of the matrix to match the annotation order
+baseline_wide_filtered <- baseline_wide_filtered[, rownames(sample_annotation)]
+
+# Define annotation colors
+annotation_colors <- list(
+  Treatment = c(CK = "#E41A1C", CZ = "#377EB8", V = "#4DAF4A", ZK = "#984EA3"),
+  Mouse = c("1" = "#66C2A5", "2" = "#FC8D62", "3" = "#8DA0CB", "5" = "#E78AC3")
 )
 
-# Alternative: Log-transformed version for better visualization of low-abundance taxa
-baseline_wide_log <- log10(baseline_wide_filtered + 1e-6)  # Add pseudocount
+baseline_wide_log <- log10(baseline_wide_filtered + 0.01)  # Adding 0.01% pseudocount
 
-p_baseline_log <- pheatmap(
+# Check the range
+range(baseline_wide_log)
+
+# Create heatmap with log10 percentages
+p_baseline_log_pct <- pheatmap(
   as.matrix(baseline_wide_log),
+  scale = "none",
   clustering_distance_rows = "euclidean",
-  clustering_distance_cols = "euclidean",
   clustering_method = "complete",
+  cluster_cols = FALSE,
   annotation_col = sample_annotation,
+  annotation_colors = annotation_colors,
   color = viridis(100),
   fontsize_row = 8,
-  fontsize_col = 10,
-  main = "Baseline (Day -5) Log10 Genus Abundance",
+  fontsize_col = 9,
+  main = "Baseline (Day -5) Genus Relative Abundance - Log10(%) Ordered by Mouse",
   show_rownames = TRUE,
   show_colnames = TRUE,
-  border_color = NA
+  border_color = NA,
+  angle_col = 45,
+  gaps_col = cumsum(table(sample_annotation$Mouse)),
+  legend_breaks = c(-2, -1, 0, 1, 1.73),
+  legend_labels = c("0.01%", "0.1%", "1%", "10%", "~54%")
 )
 
-# Save the plots
-# ggsave not directly compatible with pheatmap, use png() instead:
-png(file.path(plots_path, "baseline_day-5_genus_heatmap.png"),
+png(file.path(plots_path, "baseline_day-5_genus_heatmap_log10pct.png"), 
     width = 18, height = 14, units = "in", res = 300)
-print(p_baseline)
+print(p_baseline_log_pct)
 dev.off()
+
 ```
 
