@@ -257,37 +257,103 @@ print(p2)
 #   dpi = 300
 # )
 ```
+```{r}
+# Filter out Day -5
+genus_data_filtered <- genus_data %>%
+  filter(Day != "0")
+
+# Transform to wide format
+wide_data_filtered <- genus_data_filtered %>%
+  filter(clade_name != "") %>%
+  select(SampleID, clade_name, Relative_Abundance) %>%
+  pivot_wider(names_from = clade_name, values_from = Relative_Abundance, values_fill = 0) %>%
+  column_to_rownames("SampleID")
+
+# Calculate Bray-Curtis dissimilarity matrix
+bray_curtis_matrix_filtered <- vegdist(wide_data_filtered, method = "bray")
+
+# Match metadata
+metadata_ordered_filtered <- metadata[match(rownames(wide_data_filtered), metadata$SampleID),]
+
+# Run PERMANOVA tests
+permanova_treatment_filtered <- adonis2(bray_curtis_matrix_filtered ~ Treatment, data = metadata_ordered_filtered, strata = metadata_ordered_filtered$Day, permutations = 999)
+permanova_day_filtered <- adonis2(bray_curtis_matrix_filtered ~ Day, data = metadata_ordered_filtered, strata = metadata_ordered_filtered$Treatment, permutations = 999)
+
+print("PERMANOVA results for Treatment (Day -5 removed):")
+print(permanova_treatment_filtered)
+print("PERMANOVA results for Day (Day -5 removed):")
+print(permanova_day_filtered)
+
+# PCoA plot
+pcoa_filtered <- cmdscale(bray_curtis_matrix_filtered, eig = TRUE, k = 2)
+pcoa_coords_filtered <- as.data.frame(pcoa_filtered$points)
+colnames(pcoa_coords_filtered) <- c("PC1", "PC2")
+eigenvalues_filtered <- pcoa_filtered$eig
+var_explained_filtered <- eigenvalues_filtered / sum(eigenvalues_filtered) * 100
+
+pcoa_coords_filtered$SampleID <- rownames(pcoa_coords_filtered)
+pcoa_data_filtered <- pcoa_coords_filtered %>%
+  left_join(metadata, by = "SampleID")
+
+p_filtered <- ggplot(pcoa_data_filtered, aes(x = PC1, y = PC2, color = Day, shape = Treatment)) +
+  geom_point(size = 4, alpha = 0.7) +
+  scale_shape_manual(values = c(16, 17, 18, 15)) +
+  scale_color_viridis_d(option = "turbo") +
+  labs(
+    title = "PCoA of Genus-level (Day 0 Removed)",
+    x = paste0("PC1 (", round(var_explained_filtered[1], 2), "%)"),
+    y = paste0("PC2 (", round(var_explained_filtered[2], 2), "%)")
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    legend.position = "right",
+    panel.grid.major = element_line(color = "lightgray", linewidth = 0.3)
+  )
+
+print(p_filtered)
+
+ggsave(
+  filename = "PCoA_Genera_Hauser_day0_removed.png",
+  plot = p_filtered,
+  path = plots_path,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+```
 
 
 ```{r}
 
-#### overall abundance patherns
-
-
+#### Overall abundance patterns
 # Calculate mean abundance per taxa across all samples
-mean_abundance <- genus_rel_abund %>%
+mean_abundance <- genus_data %>%
   group_by(clade_name) %>%
   summarize(mean_abundance = mean(Relative_Abundance)) %>%
   arrange(desc(mean_abundance)) %>%
   head(10)  # Top 10 most abundant genera
 
-top10_genera <- mean_abundance$Classification[1:10]
+top10_genera <- mean_abundance$clade_name[1:10]
 
-# Calculate abundance patterns across seasons for top 5 genera
-top5_genera <- mean_abundance$Classification[1:5]
-seasonal_patterns <- genus_rel_abund %>%
-  filter(clade_name %in% top5_genera) %>%
-  group_by(Season, clade_name) %>%
+# Calculate abundance patterns across treatment and days for top 5 genera
+top5_genera <- mean_abundance$clade_name[1:5]
+
+treatment_day_patterns <- genus_data %>%
+  filter(clade_name %in% top10_genera) %>%
+  group_by(Day, Treatment, clade_name) %>%
   summarize(mean_abundance = mean(Relative_Abundance),
             se = sd(Relative_Abundance)/sqrt(n())) %>%
   ungroup()
 
-p1 <- ggplot(mean_abundance,
+
+p3 <- ggplot(mean_abundance,
              aes(x = reorder(clade_name, -mean_abundance),
                  y = mean_abundance * 100)) +
   geom_bar(stat = "identity", fill = "#2C5985", width = 0.7) +
   labs(
-    title = "Top 10 Most Abundant Genera by Bracken",
+    title = "Top 10 Most Abundant Genera",
     x = "Genus",
     y = "Mean Relative Abundance (%)"
   ) +
@@ -307,14 +373,14 @@ p1 <- ggplot(mean_abundance,
     plot.margin = margin(10, 15, 10, 10)
   )
 
-# Create a faceted box plot for seasonal patterns
-p2 <- ggplot(genus_rel_abund %>% filter(clade_name %in% top5_genera), 
-             aes(x = Season, y = Relative_Abundance * 100, fill = Season)) +
+
+p4 <- ggplot(genus_data %>% filter(clade_name %in% top10_genera), 
+             aes(x = Day, y = Relative_Abundance * 100, fill = Treatment)) +
   geom_boxplot() +
-  facet_wrap(~Classification, scales = "free_y") +
-  scale_fill_manual(values = season_palette) +
+  facet_wrap(~clade_name, scales = "free_y") +
+  scale_fill_brewer(palette = "Set2") +
   labs(
-    title = "Seasonal Distribution of Top 5 Most Abundant Genera By Bracken",
+    title = "Distribution of Top 10 Most Abundant Genera by Day and Treatment",
     y = "Relative Abundance (%)"
   ) +
   theme_classic() +
@@ -326,8 +392,6 @@ p2 <- ggplot(genus_rel_abund %>% filter(clade_name %in% top5_genera),
     axis.title.y = element_text(size = 18, face = "bold"),
     legend.title = element_text(size = 14, face = "bold"),
     legend.text = element_text(size = 12, face = "bold"),
-    plot.subtitle = element_text(size = 12),
-    plot.caption = element_text(hjust = 0, face = "italic"),
     legend.position = "right",
     legend.key.size = unit(1, 'cm'),
     axis.line.x = element_line(color = "#142D4A", linewidth = 0.8),
@@ -335,38 +399,47 @@ p2 <- ggplot(genus_rel_abund %>% filter(clade_name %in% top5_genera),
     strip.text = element_text(size = 12, face = "bold")
   )
 
-
-
-
-
- # Print summary statistics
-print("Summary of top 5 Genera abundance by season:")
-seasonal_summary <- genus_rel_abund %>%
-  filter(clade_name %in% top5_genera) %>%
-  group_by(Season, clade_name) %>%
+# Print summary statistics
+print("Summary of top 10 Genera abundance by Day and Treatment:")
+treatment_day_summary <- genus_data %>%
+  filter(clade_name %in% top10_genera) %>%
+  group_by(Day, Treatment, clade_name) %>%
   summarize(
     mean_abundance = mean(Relative_Abundance),
     sd_abundance = sd(Relative_Abundance),
     median_abundance = median(Relative_Abundance)
   )
+print(treatment_day_summary)
 
-p1
-p2
-plot_dir <- "C:/Users/Anahid/Desktop/Project-Howler (2)/Project-Howler (2) (2)/Project-Howler/plots"
+p3
+p4
 
-# ggsave(file.path(plot_dir, "bracken_Top_10_Most_Abundant_Species.jpg"),plot = p1, width = 12, height = 6, dpi = 300)
-# ggsave(file.path(plot_dir, "bracken_Seasonal Distribution of Top 5 Most Abundant Species .jpg")
-#        ,plot = p2, width = 10, height = 6, dpi = 300)
+ggsave(
+  filename = "top_10_most_abundant_genera_hauser.png",
+  plot = p3,
+  path = plots_path,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
 
 
+# ggsave(
+#   filename = "Top 10 Most Abundant Genera by Day and Treatment.png",
+#   plot = p4,
+#   path = plots_path,
+#   width = 18,
+#   height = 12,
+#   dpi = 300
+# )
 
 ```
 
 ```{r}
-#####core genera cal
-# Calculate presence/absence for each genus per individual
-core_genera <- genus_rel_abund %>%
-  group_by(Individual, clade_name) %>%
+##### Core genera calculation
+# Calculate presence/absence for each genus per treatment
+core_genera <- genus_data %>%
+  group_by(Day, clade_name) %>%
   summarize(
     Prevalence = n_distinct(SampleID[Relative_Abundance > 0.005]) / n_distinct(SampleID) * 100,
     Mean_Abundance = mean(Relative_Abundance, na.rm = TRUE),
@@ -374,17 +447,14 @@ core_genera <- genus_rel_abund %>%
   ) %>%
   ungroup()
 
-# Filter for core genera (present in >50% of samples)
+# Filter for core genera (present in >80% of samples)
 core_genera_filtered <- core_genera %>%
-  filter(Prevalence >= 80) %>%
-  arrange(Individual, desc(Mean_Abundance))
+  filter(Prevalence >= 70) %>%
+  arrange(Day, desc(Mean_Abundance))
 
-
-
-###### core species
-
-core_species <- species_rel_abund %>%
-  group_by(Individual, clade_name) %>%
+##### Core species calculation
+core_species <- species_data %>%
+  group_by(Day, clade_name) %>%
   summarize(
     Prevalence = n_distinct(SampleID[Relative_Abundance > 0.005]) / n_distinct(SampleID) * 100,
     Mean_Abundance = mean(Relative_Abundance, na.rm = TRUE),
@@ -392,15 +462,13 @@ core_species <- species_rel_abund %>%
   ) %>%
   ungroup()
 
-# Filter for core genera (present in >50% of samples)
+# Filter for core species (present in >80% of samples)
 core_species_filtered <- core_species %>%
-  filter(Prevalence >= 80) %>%
-  arrange(Individual, desc(Mean_Abundance))
+  filter(Prevalence >= 70) %>%
+  arrange(Day, desc(Mean_Abundance))
 
-
-
-core_genera_list <- unique(core_genera_filtered$Classification)
-core_spicies_list <- unique(core_species_filtered$Classification)
+core_genera_list <- unique(core_genera_filtered$clade_name)
+core_species_list <- unique(core_species_filtered$clade_name)
 
 ```
 
@@ -410,114 +478,19 @@ custom_colors <- c("#26456E", "#1c54a8", "#FFE04F", "#ffbb78","#EC6E1C", "#9F363
 # 2. Heatmap of prevalence
 p_core_g <- ggplot(core_genera_filtered, 
              aes(x = reorder(clade_name, -Prevalence), 
-                 y = Individual, 
+                 y = Day, 
                  fill = Prevalence)) +
   geom_tile() +
   scale_fill_gradientn(colors = custom_colors) +
   coord_fixed() +
   labs(
-    title = "Prevalence of Highly Persistant Genera",
+    title = " >70% Prevelant Genera",
     x = "Genus",
-    y = "Individual",
+    y = "Day",
     fill = "Prevalence (%)"
-  ) +
-  Howler_theme()
-
-
-p_core_s <- ggplot(core_species_filtered, 
-             aes(x = reorder(clade_name, -Prevalence), 
-                 y = Individual, 
-                 fill = Prevalence)) +
-  geom_tile() +
-  scale_fill_gradientn(colors = custom_colors) +
-  coord_fixed() +
-  labs(
-    title = "Prevalence of Highly Persistant Spicies",
-    x = "Species",
-    y = "Individual",
-    fill = "Prevalence (%)"
-  ) +
-  Howler_theme() +
-  theme(legend.position = "bottom") +   # put legend below plot
-  guides(
-    fill = guide_colourbar(
-      title.position = "top",
-      title.hjust    = 0.5,
-      barwidth       = unit(8, "cm"),   # make the bar long
-      barheight      = unit(0.5, "cm"), # and comfortably thick
-      label.theme    = element_text(size = 12, face = "bold")
-    )
-  ) 
-
-print(p_core_g)
-print(p_core_s)
-# ggsave(file.path(plot_dir, "core_genera_abundance.jpg"),plot = p_core_g,width = 12,height = 8,dpi = 300)
-ggsave(file.path(plot_dir, "core_species_abundance.jpg"),plot = p_core_s,width = 16,height = 10,dpi = 300)
-```
-
-```{r}
-##filter for only core taxa
-
-common_g <- genus_rel_abund %>%
-  inner_join(core_genera_filtered %>% select(Individual, clade_name)) %>%
-  filter(clade_name %in% c("Faecalibacterium",  "Prevotella" ,  "Bacteroides" , "Segatella" ,  "Clostridium",      
-  "Escherichia","Blautia","Hoylesella","Roseburia",
- "Paenibacillus","Enterocloster","Bacillus",
- "Lachnoclostridium", "Pseudomonas","Ruminococcus"))
-
-
-common_s <- species_rel_abund %>%
-  inner_join(core_species_filtered %>% select(Individual, clade_name)) %>%
-  filter(clade_name %in% c("Faecalibacterium_prausnitzii",  "Segatella_copri" ,  "Prevotella_dentalis" , "Escherichia_coli" ,  "Roseburia_hominis", "Prevotella_intermedia"))
-
-
-p_common_core_g <- ggplot(common_g, aes(x = clade_name, y = Relative_Abundance * 100)) +
-  geom_boxplot(aes(fill = Individual), alpha = 0.6, outlier.shape = NA) +
-  geom_jitter(aes(color = Individual), 
-              width = 0.2, 
-              size = 2) + 
-  scale_fill_manual(values = ind_palette) +
-  scale_color_manual(values = ind_palette) +
-  labs(
-    title = "Consensus Core Genera by Individual",
-    x = "Genus",
-    y = "Relative Abundance (%)",
-    fill = "Individual",
-    color = "Individual"
-  ) +
-  facet_wrap(~ Individual, scales = "free_x", ncol = 3) +
-  Howler_theme() +  # Apply base theme first
-  theme(
-    legend.position = "bottom",
-    strip.text = element_text(size = 18, face = "bold", color = "black"),
-    strip.background = element_rect(fill = "gray90", color = "gray20"),
-    axis.text.x = element_text(size = 16,angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 14, face = "bold"),
-    axis.title = element_text(size = 16, face = "bold"),
-    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
-    legend.title = element_text(size = 20, face = "bold"),
-    legend.text = element_text(size = 18)
-  )
-
-
-
-p_common_core_s <- ggplot(common_s, aes(x = clade_name, y = Relative_Abundance * 100)) +
-  geom_boxplot(aes(fill = Individual), alpha = 0.6, outlier.shape = NA) +
-  geom_jitter(aes(color = Individual), 
-              width = 0.2, 
-              size = 2) + 
-  scale_fill_manual(values = ind_palette) +
-  scale_color_manual(values = ind_palette) +
-  labs(
-    title = "Consensus Core Species by Individual",
-    x = "Species",
-    y = "Relative Abundance (%)",
-    fill = "Individual",
-    color = "Individual"
-  ) +
-  facet_wrap(~ Individual, scales = "free_x", ncol = 3) +
-  Howler_theme() +  # Apply base theme first
-  theme(
+  ) + theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  ) + theme(
     legend.position = "bottom",
     strip.text = element_text(size = 18, face = "bold", color = "black"),
     strip.background = element_rect(fill = "gray90", color = "gray20"),
@@ -528,67 +501,134 @@ p_common_core_s <- ggplot(common_s, aes(x = clade_name, y = Relative_Abundance *
     legend.title = element_text(size = 20, face = "bold"),
     legend.text = element_text(size = 18)
   )
-p_common_core_s <- p_common_core_s +
-  coord_cartesian(ylim = c(0, 20))
 
-p_common_core_s
 
-ggsave(file.path(plot_dir, "common_core_g.jpg"),plot = p_common_core_g,width = 24,height = 16,dpi = 300)
-ggsave(file.path(plot_dir, "common_core_s.jpg"),plot = p_common_core_s,width = 20,height = 16,dpi = 300)
+p_core_s <- ggplot(core_species_filtered, 
+             aes(x = reorder(clade_name, -Prevalence), 
+                 y = Day, 
+                 fill = Prevalence)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = custom_colors) +
+  coord_fixed() +
+  labs(
+    title = " >70% Prevelant Spicies",
+    x = "Species",
+    y = "Day",
+    fill = "Prevalence (%)"
+  ) +
+  theme(legend.position = "bottom") +   # put legend below plot
+  guides(
+    fill = guide_colourbar(
+      title.position = "top",
+      title.hjust    = 0.5,
+      barwidth       = unit(8, "cm"),   # make the bar long
+      barheight      = unit(0.5, "cm"), # and comfortably thick
+      label.theme    = element_text(size = 12, face = "bold")
+    )
+  ) + theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  ) + theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 18, face = "bold", color = "black"),
+    strip.background = element_rect(fill = "gray90", color = "gray20"),
+    axis.text.x = element_text(size = 16,angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 16, face = "bold"),
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+    legend.title = element_text(size = 20, face = "bold"),
+    legend.text = element_text(size = 18)
+  )
+
+print(p_core_g)
+print(p_core_s)
+
+# ggsave(
+#   filename = "70 prevalent Genera by Day .png",
+#   plot = p_core_g,
+#   path = plots_path,
+#   width = 18,
+#   height = 12,
+#   dpi = 300
+# )
+# 
+# 
+# ggsave(
+#   filename = "70 prevalent Species by Day .png",
+#   plot = p_core_s,
+#   path = plots_path,
+#   width = 18,
+#   height = 12,
+#   dpi = 300
+# )
+
 ```
 
+
 ```{r}
-### stack barplot, top10,  grouped by individual, facet
+# Filter for Day -5 baseline samples only
+baseline_data <- genus_data %>%
+  filter(Day == -5)
 
-individual_order <- c("Uno", "Dos", "Hugo", "Isa", "Jupiler", "Maia", "Melanie")
-Season_order <- c("Dry", "Intermidiate", "Rain")
+# Create wide matrix for heatmap (genera as rows, samples as columns)
+baseline_wide <- baseline_data %>%
+  select(SampleID, clade_name, Relative_Abundance) %>%
+  pivot_wider(names_from = SampleID, values_from = Relative_Abundance, values_fill = 0) %>%
+  column_to_rownames("clade_name")
 
-# Correctly set factor levels for Individual
-genus_rel_abund <- genus_rel_abund %>%
-  mutate(Individual = factor(Individual, levels = individual_order))
+# Remove genera with zero abundance across all samples
+baseline_wide <- baseline_wide[rowSums(baseline_wide) > 0, ]
 
-# Arrange and reorder SampleID
-genus_rel_abund <- genus_rel_abund %>%
-  arrange(Individual, SampleID) %>%
-  mutate(SampleID = factor(SampleID, levels = unique(SampleID)))
+# Optional: Filter to genera with mean abundance > threshold for cleaner visualization
+# Adjust threshold as needed (e.g., 0.001 = 0.1%)
+abundance_threshold <- 0.001
+baseline_wide_filtered <- baseline_wide[rowMeans(baseline_wide) > abundance_threshold, ]
 
-genus_top10 <- genus_rel_abund %>%
-  filter(clade_name %in% top10_genera)
+# Get sample metadata for annotation
+sample_annotation <- baseline_data %>%
+  select(SampleID, Treatment) %>%
+  distinct() %>%
+  column_to_rownames("SampleID")
 
-stacked_faceted <- ggplot(genus_top10,
-  aes(x = SampleID, y = Relative_Abundance * 100, fill = clade_name)) +
-  geom_col(width = 0.9, color = "white", linewidth = 0.15, position = "stack") +
-  scale_fill_manual(values = my_palette) +
-  labs(
-    title = "Stacked Bar Plot of Top 10 Most Abundant Genera",
-    x = "Sample ID",
-    y = "Relative Abundance (%)",
-    fill = "Genera"
-  ) +
-  facet_grid(. ~ Individual, scales = "free_x", space = "free_x") +
-  Howler_theme() +
-  theme(
-  strip.text = element_text(face = "bold", size = 16),
-  panel.spacing.x = unit(0.6, "lines"),
-  axis.text.x  = element_blank(),       # hides sample labels
-  axis.ticks.x = element_blank(),       # optional: hide ticks too
-  axis.title.x = element_text(size = 18, face = "bold"),
-  axis.title.y = element_text(size = 18, face = "bold"),
-  legend.title = element_text(size = 16, face = "bold"),
-  legend.text  = element_text(size = 16)
+# Create heatmap with pheatmap
+p_baseline <- pheatmap(
+  as.matrix(baseline_wide_filtered),
+  scale = "row",  # Scale by row to highlight variation across samples
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "complete",
+  annotation_col = sample_annotation,
+  color = colorRampPalette(c("#26456E", "#1c54a8", "white", "#FFE04F", "#EC6E1C"))(100),
+  fontsize_row = 8,
+  fontsize_col = 10,
+  main = "Baseline (Day -5) Genus Relative Abundance Across Samples",
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  border_color = NA
 )
 
-print(stacked_faceted)
+# Alternative: Log-transformed version for better visualization of low-abundance taxa
+baseline_wide_log <- log10(baseline_wide_filtered + 1e-6)  # Add pseudocount
 
-# ggsave(file.path(plot_dir, "Bracken_stackar_top10_G_Ind_ordered.jpg"),plot = stacked_faceted,width = 18,height = 14,dpi = 300)
-```
+p_baseline_log <- pheatmap(
+  as.matrix(baseline_wide_log),
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  clustering_method = "complete",
+  annotation_col = sample_annotation,
+  color = viridis(100),
+  fontsize_row = 8,
+  fontsize_col = 10,
+  main = "Baseline (Day -5) Log10 Genus Abundance",
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  border_color = NA
+)
 
-```
-
-
-```{r}
-
-
-
+# Save the plots
+# ggsave not directly compatible with pheatmap, use png() instead:
+png(file.path(plots_path, "baseline_day-5_genus_heatmap.png"),
+    width = 18, height = 14, units = "in", res = 300)
+print(p_baseline)
+dev.off()
 ```
 
