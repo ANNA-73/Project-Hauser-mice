@@ -697,6 +697,218 @@ ggsave("between_treatment_distances_faceted_lower_triangle.png", p_facet_heatmap
        path = plots_path, width = 16, height = 5, dpi = 300)
 
 ```
+###another cool analysis, each indivual mouse has it's baseline, let's follow while comaring to that
+
+```{r}
+# =============================================================================
+# INDIVIDUAL MOUSE TRAJECTORIES: Distance from own baseline (Day -5)
+# =============================================================================
+
+# Function to calculate distance from baseline for each mouse
+calc_distance_from_baseline <- function(genus_data) {
+  
+  # Get list of mice
+  mice <- unique(genus_data$Mouse)
+  
+  results <- list()
+  
+  for (m in mice) {
+    
+    # Get all data for this mouse
+    mouse_data <- genus_data %>%
+      filter(Mouse == m)
+    
+    # Get treatment for this mouse
+    mouse_treatment <- unique(mouse_data$Treatment)
+    
+    # Get timepoints available for this mouse
+    timepoints <- unique(mouse_data$Day)
+    
+    # Skip if no baseline
+    if (!(-5 %in% timepoints)) {
+      next
+    }
+    
+    # Aggregate to day level for this mouse (in case of replicates)
+    mouse_daily <- mouse_data %>%
+      group_by(Day, clade_name) %>%
+      summarize(mean_abundance = mean(Relative_Abundance), .groups = "drop")
+    
+    # Convert to wide format
+    mouse_wide <- mouse_daily %>%
+      pivot_wider(names_from = clade_name, values_from = mean_abundance, values_fill = 0) %>%
+      column_to_rownames("Day")
+    
+    # Get baseline (Day -5) as reference
+    baseline_profile <- mouse_wide["-5", , drop = FALSE]
+    
+    # Calculate distance from baseline for each other timepoint
+    for (d in timepoints) {
+      if (d == -5) {
+        # Distance to self is 0
+        results[[length(results) + 1]] <- data.frame(
+          Mouse = m,
+          Treatment = mouse_treatment,
+          Day = d,
+          Distance_from_baseline = 0
+        )
+      } else {
+        day_profile <- mouse_wide[as.character(d), , drop = FALSE]
+        
+        # Combine and calculate Bray-Curtis
+        combined <- rbind(baseline_profile, day_profile)
+        bc_dist <- vegdist(combined, method = "bray")
+        
+        results[[length(results) + 1]] <- data.frame(
+          Mouse = m,
+          Treatment = mouse_treatment,
+          Day = d,
+          Distance_from_baseline = as.numeric(bc_dist)
+        )
+      }
+    }
+  }
+  
+  return(bind_rows(results))
+}
+
+# Calculate distances
+mouse_trajectories <- calc_distance_from_baseline(genus_data)
+
+# Check the data
+print("=== INDIVIDUAL MOUSE DISTANCES FROM BASELINE ===")
+print(mouse_trajectories %>% arrange(Mouse, Day))
+
+# =============================================================================
+# PLOT 1: Individual trajectories with treatment coloring
+# =============================================================================
+
+treatment_colors <- c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341")
+
+p_individual <- ggplot(mouse_trajectories, 
+                       aes(x = Day, y = Distance_from_baseline, 
+                           color = Treatment, group = Mouse)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+  geom_line(linewidth = 0.8, alpha = 0.7) +
+  geom_point(size = 2.5, alpha = 0.9) +
+  scale_color_manual(values = treatment_colors) +
+  scale_x_continuous(breaks = c(-5, 0, 3, 10, 14)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  annotate("text", x = 0.5, y = 0.95, 
+           label = "Antibiotics +\nInoculation", size = 3, hjust = 0, fontface = "italic") +
+  labs(
+    title = "Individual Mouse Microbiome Change from Baseline",
+    subtitle = "Each line = one mouse; Distance = Bray-Curtis dissimilarity from own Day -5",
+    x = "Day",
+    y = "Bray-Curtis Distance from Baseline",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    legend.title = element_text(size = 12, face = "bold")
+  )
+
+print(p_individual)
+
+# =============================================================================
+# PLOT 2: Summary by treatment group (mean ± SE)
+# =============================================================================
+
+trajectory_summary <- mouse_trajectories %>%
+  group_by(Treatment, Day) %>%
+  summarize(
+    mean_distance = mean(Distance_from_baseline),
+    sd_distance = sd(Distance_from_baseline),
+    n = n(),
+    se_distance = sd_distance / sqrt(n),
+    .groups = "drop"
+  )
+
+p_summary <- ggplot(trajectory_summary, 
+                    aes(x = Day, y = mean_distance, color = Treatment, group = Treatment)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3.5) +
+  geom_errorbar(aes(ymin = mean_distance - se_distance, 
+                    ymax = mean_distance + se_distance),
+                width = 0.5, linewidth = 0.8) +
+  scale_color_manual(values = treatment_colors) +
+  scale_x_continuous(breaks = c(-5, 0, 3, 10, 14)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  annotate("text", x = 0.5, y = 0.95, 
+           label = "Antibiotics +\nInoculation", size = 3, hjust = 0, fontface = "italic") +
+  labs(
+    title = "Microbiome Deviation from Baseline by Treatment",
+    x = "Day",
+    y = "Mean Bray-Curtis Distance from Baseline",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    legend.title = element_text(size = 12, face = "bold")
+  )
+
+print(p_summary)
+
+ggsave("Ind_mice_from_baseline-SDsummary.png", p_summary,
+       path = plots_path, width = 12, height = 8, dpi = 300)
+
+
+# =============================================================================
+# PLOT 3: Faceted by treatment to see individual variation within groups
+# =============================================================================
+
+p_faceted <- ggplot(mouse_trajectories, 
+                    aes(x = Day, y = Distance_from_baseline, group = Mouse)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.6) +
+  geom_line(aes(color = Treatment), linewidth = 0.9, alpha = 0.8) +
+  geom_point(aes(color = Treatment), size = 2) +
+  facet_wrap(~Treatment, nrow = 1) +
+  scale_color_manual(values = treatment_colors) +
+  scale_x_continuous(breaks = c(-5, 0, 3, 10, 14)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Individual Mouse Temporal Dynamics by Treatment Group",
+    subtitle = "Each line = one mouse tracking distance from its own Day -5 baseline",
+    x = "Day",
+    y = "Bray-Curtis Distance from Baseline"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10, face = "bold", angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 10, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray95"),
+    legend.position = "none"
+  )
+
+print(p_faceted)
+
+ggsave("Ind_mice_from_baseline-facet.png", p_faceted,
+       path = plots_path, width = 16, height = 5, dpi = 300)
+
+# =============================================================================
+# Print summary table
+# =============================================================================
+
+print("=== SUMMARY BY TREATMENT AND DAY ===")
+print(trajectory_summary %>% arrange(Treatment, Day))
+```
+
+
 
 # Post treatment
 ```{r}
