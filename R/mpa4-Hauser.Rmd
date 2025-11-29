@@ -29,6 +29,7 @@ gtdb_table <- read_tsv(
   comment = "#",
   col_names = TRUE
 ) %>%
+  
   rename(clade_name = 1) %>%      # rename column 1 to "clade_name"
   select(-profiled_PBS_S33)
 colnames(gtdb_table) <- gsub("profiled_", "", colnames(gtdb_table))
@@ -422,7 +423,7 @@ print(p_distance_heatmap)
 
 ```{r}
 dayzero_data <- genus_data %>%
-  filter(Day == 3)%>%
+  filter(Day == 0)%>%
   mutate(Mouse = as.factor(Mouse)) 
 
 baseline_mouse_level <- dayzero_data %>%
@@ -495,8 +496,207 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
 
 print(p_distance_heatmap)
 
-```
+ggsave(
+  filename = file.path(plots_path, "distance_heatmap.png"),
+  plot = p_distance_heatmap,
+  width = 14,
+  height = 12,
+  dpi = 300
+)
 
+```
+## ok this was interesting. Let's do comparison in BC distances  between in diffrent timepoints. Remember day -5 is the baseline, before any  vancomycin
+
+```{r}
+
+
+# BETWEEN-TREATMENT BRAY-CURTIS DISTANCES OVER TIME
+# Broken down by treatment pair, referenced to Day -5
+
+
+# Function to calculate between-treatment distances for a specific day
+calc_between_treatment_distances <- function(genus_data, day_filter) {
+  
+
+  # Filter data for the specific day
+ day_data <- genus_data %>%
+    filter(Day == day_filter) %>%
+    mutate(Mouse = as.factor(Mouse))
+  
+  # Aggregate to mouse level (mean abundance per mouse per genus)
+  mouse_level <- day_data %>%
+    group_by(Mouse, clade_name) %>%
+    summarize(mean_abundance = mean(Relative_Abundance), .groups = "drop")
+  
+  # Convert to wide format
+  wide_data <- mouse_level %>%
+    pivot_wider(names_from = clade_name, values_from = mean_abundance, values_fill = 0) %>%
+    column_to_rownames("Mouse")
+  
+  # Calculate Bray-Curtis distance matrix
+  bray_dist <- vegdist(wide_data, method = "bray")
+  dist_matrix <- as.matrix(bray_dist)
+  
+  # Convert to long format with mouse pair info
+  dist_long <- dist_matrix %>%
+    as.data.frame() %>%
+    rownames_to_column("Mouse1") %>%
+    pivot_longer(-Mouse1, names_to = "Mouse2", values_to = "Distance") %>%
+    filter(Mouse1 < Mouse2)  # Keep only unique pairs (lower triangle)
+  
+  # Extract treatment from mouse names (format: "Treatment-Number")
+  dist_long <- dist_long %>%
+    mutate(
+      Treatment1 = str_extract(Mouse1, "^[A-Z]+"),
+      Treatment2 = str_extract(Mouse2, "^[A-Z]+")
+    )
+  
+  # Create treatment pair label (alphabetically sorted for consistency)
+  dist_long <- dist_long %>%
+    rowwise() %>%
+    mutate(
+      Treatment_Pair = paste(sort(c(Treatment1, Treatment2)), collapse = " ↔ ")
+    ) %>%
+    ungroup()
+  
+  # Filter for BETWEEN-treatment pairs only (exclude within-treatment)
+  between_treatment <- dist_long %>%
+    filter(Treatment1 != Treatment2) %>%
+    mutate(Day = day_filter)
+  
+  return(between_treatment)
+}
+
+# Calculate for all timepoints
+timepoints <- c(-5, 0, 3, 10, 14)
+
+all_between_distances <- map_dfr(timepoints, function(d) {
+  calc_between_treatment_distances(genus_data, d)
+})
+
+# Summarize: mean and SE per treatment pair per day
+between_summary <- all_between_distances %>%
+  group_by(Day, Treatment_Pair) %>%
+  summarize(
+    mean_distance = mean(Distance),
+    sd_distance = sd(Distance),
+    n_pairs = n(),
+    se_distance = sd_distance / sqrt(n_pairs),
+    .groups = "drop"
+  )
+
+# Calculate change from baseline (Day -5)
+baseline_distances <- between_summary %>%
+  filter(Day == -5) %>%
+  select(Treatment_Pair, baseline_distance = mean_distance)
+
+between_summary <- between_summary %>%
+  left_join(baseline_distances, by = "Treatment_Pair") %>%
+  mutate(
+    change_from_baseline = mean_distance - baseline_distance,
+    fold_change = mean_distance / baseline_distance
+  )
+
+# Print summary table
+print("=== BETWEEN-TREATMENT DISTANCES BY TIMEPOINT ===")
+print(between_summary %>% 
+        select(Day, Treatment_Pair, mean_distance, se_distance, change_from_baseline) %>%
+        arrange(Treatment_Pair, Day))
+
+
+
+########
+#Now plotting
+##########
+
+
+pair_colors <- c(
+ "CK ↔ CZ" = "#E41A1C",
+  "CK ↔ V" = "#377EB8", 
+  "CK ↔ ZK" = "#4DAF4A",
+  "CZ ↔ V" = "#984EA3",
+  "CZ ↔ ZK" = "#FF7F00",
+  "V ↔ ZK" = "#A65628"
+)
+
+# =============================================================================
+# FACETED HEATMAP: Treatment × Treatment matrix for each Day (lower triangle only)
+# =============================================================================
+
+# Reshape data to have Treatment1, Treatment2 as separate axes
+heatmap_data <- between_summary %>%
+  separate(Treatment_Pair, into = c("Trt1", "Trt2"), sep = " ↔ ", remove = FALSE) %>%
+  select(Day, Trt1, Trt2, mean_distance)
+
+# Create mirror image for symmetric matrix (add both directions)
+heatmap_symmetric <- bind_rows(
+  heatmap_data,
+  heatmap_data %>% rename(Trt1 = Trt2, Trt2 = Trt1)
+)
+
+# Add diagonal (same treatment = 0 distance, or NA to leave blank)
+treatments <- c("CK", "CZ", "V", "ZK")
+days <- c(-5, 0, 3, 10, 14)
+
+diagonal <- expand_grid(Day = days, Trt = treatments) %>%
+  mutate(Trt1 = Trt, Trt2 = Trt, mean_distance = NA) %>%
+  select(-Trt)
+
+heatmap_full <- bind_rows(heatmap_symmetric, diagonal)
+
+# Order treatments and days (important: do this BEFORE filtering to numeric positions)
+heatmap_full <- heatmap_full %>%
+  mutate(
+    Trt1 = factor(Trt1, levels = c("V", "CK", "CZ", "ZK")),
+    Trt2 = factor(Trt2, levels = c("V", "CK", "CZ", "ZK")),
+    Day = factor(Day, levels = c(-5, 0, 3, 10, 14), labels = c("Day -5", "Day 0", "Day 3", "Day 10", "Day 14"))
+  )
+
+# Keep only the bottom triangle (including diagonal)
+heatmap_lower <- heatmap_full %>%
+  filter(as.numeric(Trt1) >= as.numeric(Trt2))
+
+# Plot (use the lower-triangle data frame)
+p_facet_heatmap <- ggplot(heatmap_lower, 
+                          aes(x = Trt2, y = Trt1, fill = mean_distance)) +
+  geom_tile(color = "white", linewidth = 1.2) +
+  geom_text(aes(label = ifelse(is.na(mean_distance), "", sprintf("%.2f", mean_distance))), 
+            color = "black", size = 4, fontface = "bold") +
+  facet_wrap(~Day, nrow = 1) +
+  scale_fill_gradientn(
+    colors = c("#26456E", "#1c54a8", "#FFE04F", "#EC6E1C", "#9F3632"),
+    limits = c(0, 1),
+    na.value = "gray90",
+    name = "Mean Bray-Curtis\nDistance"
+  ) +
+  labs(
+    title = "Between-Treatment Microbiome Dissimilarity Across Time",
+    subtitle = "Each panel shows pairwise treatment distances at that timepoint",
+    x = "",
+    y = ""
+  ) +
+  coord_fixed() +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 11, face = "italic"),
+    axis.text.x = element_text(size = 11, face = "bold", angle = 0),
+    axis.text.y = element_text(size = 11, face = "bold"),
+    strip.text = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "gray95", color = NA),
+    legend.position = "right",
+    legend.title = element_text(size = 10, face = "bold"),
+    panel.grid = element_blank()
+  )
+
+print(p_facet_heatmap)
+
+# Save to file (adjust path/size as needed)
+dir.create(plots_path, recursive = TRUE, showWarnings = FALSE)
+ggsave("between_treatment_distances_faceted_lower_triangle.png", p_facet_heatmap,
+       path = plots_path, width = 16, height = 5, dpi = 300)
+
+```
 
 # Post treatment
 ```{r}
