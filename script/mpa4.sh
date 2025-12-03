@@ -1,9 +1,9 @@
 #!/bin/sh
-#SBATCH -A p32046
-#SBATCH -p short
+#SBATCH -A b1042
+#SBATCH -p genomics
 #SBATCH -N 1
-#SBATCH -n 16
-#SBATCH -t 4:00:00
+#SBATCH -n 24
+#SBATCH -t 10:00:00
 #SBATCH --mem=0
 #SBATCH --array=1-69
 #SBATCH --job-name="mpa4"
@@ -11,7 +11,6 @@
 #SBATCH --error=/projects/b1042/HartmannLab/Hauser-mice/logs/mpa4_%a.err
 
 module purge all
-module load metaphlan/4.0.1
 
 file_path=/projects/b1042/HartmannLab/Hauser-mice/output/knead_out
 output_path=/projects/b1042/HartmannLab/Hauser-mice/output/mpa4
@@ -30,8 +29,9 @@ touch ${output_path}/profiled_${basename}.txt
 
 metaphlan $R1,$R2 \
   --input_type fastq \
-  --bowtie2db /projects/b1180/db/metaphlan_db_2024/ \
-  --nproc 16 \
+  --bowtie2db /projects/b1180/db/metaphlan_db_vJan21 \
+  --index mpa_vJan21_CHOCOPhlAnSGB_202103 \
+  --nproc 24 \
   --bowtie2out ${output_path}/${basename}.bowtie2.bz2 \
   --output_file ${output_path}/profiled_${basename}.txt
 

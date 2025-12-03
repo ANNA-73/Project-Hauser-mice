@@ -171,6 +171,20 @@ post_treatment_data <- genus_data %>%
 
 #all samples
 ```{r}
+## separating baseline from others
+full_genus_data <- genus_data %>%
+  mutate(Mouse = as.factor(Mouse)) 
+
+# 2. Baseline only (Day -5)
+baseline_data <- genus_data %>%
+  filter(Day == -5) %>%
+  mutate(Mouse = as.factor(Mouse)) 
+
+# 3. Post-treatment only (Days 0, 3, 10, 14)
+post_treatment_data <- genus_data %>%
+  filter(Day %in% c(0, 3, 10, 14)) %>%
+  mutate(Mouse = as.factor(Mouse)) 
+
 # First transform the data to wide format properly
 wide_data <- full_genus_data %>%
   select(SampleID, clade_name, Relative_Abundance) %>%
@@ -180,35 +194,38 @@ wide_data <- full_genus_data %>%
 # Calculate Bray-Curtis dissimilarity matrix
 bray_curtis_matrix <- vegdist(wide_data, method = "bray")
 
-# Match metadata to sample order - FIXED: use wide_data not wide_post
+# Match metadata to sample order
 metadata_all <- metadata %>%
-  filter(SampleID %in% rownames(wide_data)) %>%  # FIXED
+  filter(SampleID %in% rownames(wide_data)) %>%
   mutate(Mouse = as.factor(Mouse)) %>%
-  arrange(match(SampleID, rownames(wide_data)))  # FIXED
+  arrange(match(SampleID, rownames(wide_data)))
 
-# PERMANOVA - FIXED: use bray_curtis_matrix not bray_post
-permanova_treatment_all <- adonis2(bray_curtis_matrix ~ Treatment,  # FIXED
+# PERMANOVA tests
+# Treatment: between-mouse factor, no strata needed
+permanova_treatment_all <- adonis2(bray_curtis_matrix ~ Treatment,
                                     data = metadata_all, 
                                     permutations = 999)
 
-permanova_day_all <- adonis2(bray_curtis_matrix ~ Day,  # FIXED
+# Day: within-mouse factor, block by Mouse
+permanova_day_all <- adonis2(bray_curtis_matrix ~ Day,
                               data = metadata_all, 
                               strata = metadata_all$Mouse,
                               permutations = 999)
 
-permanova_mouse_all <- adonis2(bray_curtis_matrix ~ Mouse,  # FIXED
+# Mouse: individual variation
+permanova_mouse_all <- adonis2(bray_curtis_matrix ~ Mouse,
                                 data = metadata_all,
                                 permutations = 999)
 
 print("=== FULL DATASET PERMANOVA (Days: -5, 0, 3, 10, 14) ===")
-print("Treatment effect (blocking by Mouse):")
+print("Treatment effect:")
 print(permanova_treatment_all)
 print("\nDay effect (blocking by Mouse):")
 print(permanova_day_all)
 print("\nMouse effect (individual variation):")
 print(permanova_mouse_all)
 
-# Create summary plot of PERMANOVA results
+# Create summary plot - FIXED syntax
 permanova_results <- data.frame(
   Factor = c("Treatment", "Day", "Mouse"),
   R2 = c(permanova_treatment_all$R2[1], 
@@ -226,7 +243,7 @@ p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value 
   scale_fill_manual(values = c("TRUE" = "lightblue", "FALSE" = "gray70"),
                     labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
   labs(
-    title = "PERMANOVA Results: All Samples Microbiome ",
+    title = "PERMANOVA Results: All Samples Microbiome",
     x = "",
     y = "R² (Variance Explained)",
     fill = "Significance"
@@ -234,7 +251,6 @@ p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value 
   theme_classic(base_size = 14) +
   theme(
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
     axis.text.x = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
     legend.position = "bottom",
@@ -243,18 +259,17 @@ p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value 
   ylim(0, max(permanova_results$R2) * 1.25)
 
 print(p_permanova)
-
 # Save the plot
 plots_path <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Plots"
 
-# ggsave(
-#   filename = "permanova_results_all.png",
-#   plot = p_permanova,
-#   path = plots_path,
-#   width = 10,
-#   height = 6,
-#   dpi = 300
-# )
+ggsave(
+  filename = "permanova_results_all.png",
+  plot = p_permanova,
+  path = plots_path,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
 
 ```
 #Baseline only
@@ -412,11 +427,11 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
 print(p_distance_heatmap)
 
 
-# ggsave("baseline_distance_heatmap.png", p_distance_heatmap,
-#        path = plots_path, width = 8, height = 7, dpi = 300)
+ ggsave("baseline_distance_heatmap.png", p_distance_heatmap,
+        path = plots_path, width = 8, height = 7, dpi = 300)
 
-# ggsave("p_top10_baseline.png", p_top10_baseline,
-#        path = plots_path, width = 8, height = 7, dpi = 300)
+ ggsave("p_top10_baseline.png", p_top10_baseline,
+        path = plots_path, width = 8, height = 7, dpi = 300)
 
 ```
 ##what abt day 0?
@@ -476,7 +491,7 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
   geom_text(aes(label = round(Distance, 3)), color = "black", size = 5, fontface = "bold") +
   scale_fill_gradientn(colors = custom_colors, limits = c(0,0.5) ) +
   labs(
-    title = "Pairwise Bray-Curtis Distances Between Mice at Baseline",
+    title = "Pairwise Bray-Curtis Distances Between Mice at Day0",
     subtitle = paste0("Mean Distance = ", mean_dist),  # DYNAMIC
     x = "Mouse ID",
     y = "Mouse ID",
@@ -497,7 +512,7 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
 print(p_distance_heatmap)
 
 ggsave(
-  filename = file.path(plots_path, "distance_heatmap.png"),
+  filename = file.path(plots_path, "day0_distance_heatmap.png"),
   plot = p_distance_heatmap,
   width = 14,
   height = 12,
@@ -912,62 +927,61 @@ print(trajectory_summary %>% arrange(Treatment, Day))
 
 # Post treatment
 ```{r}
-
 wide_post <- post_treatment_data %>%
   select(SampleID, clade_name, Relative_Abundance) %>%
   pivot_wider(names_from = clade_name, values_from = Relative_Abundance, values_fill = 0) %>%
   column_to_rownames("SampleID")
 
-# Calculate Bray-Curtis dissimilarity matrix
 bray_post <- vegdist(wide_post, method = "bray")
 
-# Match metadata to sample order
 metadata_post <- metadata %>%
   filter(SampleID %in% rownames(wide_post)) %>%
   mutate(Mouse = as.factor(Mouse)) %>%
   arrange(match(SampleID, rownames(wide_post)))
 
+# Treatment effect - NO strata (between-mouse factor)
 permanova_treatment_post <- adonis2(bray_post ~ Treatment, 
                                     data = metadata_post, 
-                                    strata = metadata_post$Mouse,  # Block by individual mouse
                                     permutations = 999)
 
+# Day effect - WITH strata (within-mouse factor)
 permanova_day_post <- adonis2(bray_post ~ Day, 
                               data = metadata_post, 
-                              strata = metadata_post$Mouse,  # Block by individual mouse
+                              strata = metadata_post$Mouse,
                               permutations = 999)
 
-permanova_mouse <- adonis2(bray_post ~ Mouse,
-                          data = metadata_post,
-                          permutations = 999)
+# Mouse effect
+permanova_mouse_post <- adonis2(bray_post ~ Mouse,
+                                data = metadata_post,
+                                permutations = 999)
 
 print("=== POST-TREATMENT PERMANOVA ===")
-print("Treatment effect (blocking by Mouse):")
+print("Treatment effect:")
 print(permanova_treatment_post)
 print("\nDay effect (blocking by Mouse):")
 print(permanova_day_post)
 print("\nMouse effect (individual variation):")
-print(permanova_mouse)
+print(permanova_mouse_post)
 
-# Create summary plot of PERMANOVA results
-permanova_results <- data.frame(
+# Create summary plot - FIXED: added $ before backticks
+permanova_results_post <- data.frame(
   Factor = c("Treatment", "Day", "Mouse"),
   R2 = c(permanova_treatment_post$R2[1], 
          permanova_day_post$R2[1],
-         permanova_mouse$R2[1]),
+         permanova_mouse_post$R2[1]),
   P_value = c(permanova_treatment_post$`Pr(>F)`[1], 
               permanova_day_post$`Pr(>F)`[1],
-              permanova_mouse$`Pr(>F)`[1])
+              permanova_mouse_post$`Pr(>F)`[1])
 )
 
-p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value < 0.05)) +
+p_permanova_post <- ggplot(permanova_results_post, aes(x = Factor, y = R2, fill = P_value < 0.05)) +
   geom_bar(stat = "identity", width = 0.5) +
   geom_text(aes(label = sprintf("R² = %.3f\np = %.3f", R2, P_value)), 
             vjust = -0.5, size = 4, fontface = "bold") +
   scale_fill_manual(values = c("TRUE" = "#EC6E1C", "FALSE" = "gray70"),
                     labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
   labs(
-    title = "PERMANOVA Results: Post-Treatment Microbiome ",
+    title = "PERMANOVA Results: Post-Treatment Microbiome",
     x = "",
     y = "R² (Variance Explained)",
     fill = "Significance"
@@ -975,18 +989,18 @@ p_permanova <- ggplot(permanova_results, aes(x = Factor, y = R2, fill = P_value 
   theme_classic(base_size = 14) +
   theme(
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
     axis.text.x = element_text(size = 14, face = "bold"),
     axis.title = element_text(size = 14, face = "bold"),
     legend.position = "bottom",
     legend.title = element_text(size = 12, face = "bold")
   ) +
-  ylim(0, max(permanova_results$R2) * 1.25)
+  ylim(0, max(permanova_results_post$R2) * 1.25)
 
-print(p_permanova)
+print(p_permanova_post)
 
-# ggsave("post_treatment_permanova.png", p_permanova,
-#        path = plots_path, width = 10, height = 7, dpi = 300)
+
+ggsave("post_treatment_permanova.png", p_permanova_post,
+       path = plots_path, width = 10, height = 7, dpi = 300)
 ```
 
 ```{r}
@@ -1115,25 +1129,22 @@ print(p_filtered)
 ```{r}
 
 #### Overall abundance patterns
-# Calculate mean abundance per taxa across all samples
 mean_abundance <- genus_data %>%
   group_by(clade_name) %>%
   summarize(mean_abundance = mean(Relative_Abundance)) %>%
   arrange(desc(mean_abundance)) %>%
-  head(10)  # Top 10 most abundant genera
+  head(10)
 
 top10_genera <- mean_abundance$clade_name[1:10]
-
-# Calculate abundance patterns across treatment and days for top 5 genera
 top5_genera <- mean_abundance$clade_name[1:5]
 
-treatment_day_patterns <- genus_data %>%
-  filter(clade_name %in% top10_genera) %>%
-  group_by(Day, Treatment, clade_name) %>%
-  summarize(mean_abundance = mean(Relative_Abundance),
-            se = sd(Relative_Abundance)/sqrt(n())) %>%
-  ungroup()
-
+# Remove if not using, or keep for later
+# treatment_day_patterns <- genus_data %>%
+#   filter(clade_name %in% top10_genera) %>%
+#   group_by(Day, Treatment, clade_name) %>%
+#   summarize(mean_abundance = mean(Relative_Abundance),
+#             se = sd(Relative_Abundance)/sqrt(n())) %>%
+#   ungroup()
 
 p3 <- ggplot(mean_abundance,
              aes(x = reorder(clade_name, -mean_abundance),
@@ -1146,9 +1157,7 @@ p3 <- ggplot(mean_abundance,
   ) +
   theme_classic(base_size = 14, base_family = "sans") +
   theme(
-    plot.title = element_text(
-      hjust = 0.5, size = 20, face = "bold", margin = margin(b = 15)
-    ),
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold", margin = margin(b = 15)),
     axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 10)),
     axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 10)),
     axis.text.x = element_text(size = 12, angle = 45, hjust = 1, vjust = 1, color = "black"),
@@ -1160,21 +1169,21 @@ p3 <- ggplot(mean_abundance,
     plot.margin = margin(10, 15, 10, 10)
   )
 
-
 top3_genera <- mean_abundance %>%
   filter(clade_name != "Klebsiella") %>%
   head(3) %>%
   pull(clade_name)
 
-# Plot 1: Top 3 genera with ylim 100
+# Plot 1: Top 3 genera - FIXED: factor(Day)
 p4_top3 <- ggplot(genus_data %>% filter(clade_name %in% top3_genera), 
-             aes(x = Day, y = Relative_Abundance * 100, fill = Treatment)) +
+             aes(x = factor(Day), y = Relative_Abundance * 100, fill = Treatment)) +
   geom_boxplot() +
   facet_wrap(~clade_name) +
   scale_fill_brewer(palette = "Set2") +
   coord_cartesian(ylim = c(0, 100)) +
   labs(
     title = "Top 3 Most Abundant Genera by Day and Treatment",
+    x = "Day",
     y = "Relative Abundance (%)"
   ) +
   theme_classic() +
@@ -1193,14 +1202,15 @@ p4_top3 <- ggplot(genus_data %>% filter(clade_name %in% top3_genera),
     strip.text = element_text(size = 12, face = "bold")
   )
 
-# Plot 2: Klebsiella only with ylim 30
+# Plot 2: Klebsiella - FIXED: factor(Day)
 p4_kleb <- ggplot(genus_data %>% filter(clade_name == "Klebsiella"), 
-             aes(x = Day, y = Relative_Abundance * 100, fill = Treatment)) +
+             aes(x = factor(Day), y = Relative_Abundance * 100, fill = Treatment)) +
   geom_boxplot() +
   scale_fill_brewer(palette = "Set2") +
   coord_cartesian(ylim = c(0, 30)) +
   labs(
     title = "Klebsiella Abundance by Day and Treatment",
+    x = "Day",
     y = "Relative Abundance (%)"
   ) +
   theme_classic() +
@@ -1218,32 +1228,86 @@ p4_kleb <- ggplot(genus_data %>% filter(clade_name == "Klebsiella"),
     axis.line.y = element_line(color = "#142D4A", linewidth = 0.8)
   )
 
+p3
 p4_top3
 p4_kleb
 
-p3
+# ggsave("top_10_most_abundant_genera_hauser.png", p3,
+#        path = plots_path, width = 10, height = 6, dpi = 300)
 
+# ggsave("top3_genera_by_day_treatment.png", p4_top3,
+#        path = plots_path, width = 18, height = 12, dpi = 300)
 
-# ggsave(
-#   filename = "top_10_most_abundant_genera_hauser.png",
-#   plot = p3,
-#   path = plots_path,
-#   width = 10,
-#   height = 6,
-#   dpi = 300
-# )
-
-
-# ggsave(
-#   filename = "Top 10 Most Abundant Genera by Day and Treatment.png",
-#   plot = p4,
-#   path = plots_path,
-#   width = 18,
-#   height = 12,
-#   dpi = 300
-# )
+# ggsave("klebsiella_by_day_treatment.png", p4_kleb,
+#        path = plots_path, width = 10, height = 8, dpi = 300)
 
 ```
+```{r}
+# Calculate mean abundance for each dataset
+mean_abundance_all <- genus_data %>%
+  group_by(clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance)) %>%
+  mutate(Dataset = "All Timepoints")
+
+mean_abundance_baseline <- baseline_data %>%
+  group_by(clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance)) %>%
+  mutate(Dataset = "Baseline (Day -5)")
+
+mean_abundance_post <- post_treatment_data %>%
+  group_by(clade_name) %>%
+  summarize(mean_abundance = mean(Relative_Abundance)) %>%
+  mutate(Dataset = "Post-Treatment")
+
+# Get top 10 genera from ALL timepoints (for consistent ordering)
+top10_all <- mean_abundance_all %>%
+  arrange(desc(mean_abundance)) %>%
+  head(10) %>%
+  pull(clade_name)
+
+# Combine and filter to top 10
+combined_abundance <- bind_rows(
+  mean_abundance_all,
+  mean_abundance_baseline,
+  mean_abundance_post
+) %>%
+  filter(clade_name %in% top10_all) %>%
+  mutate(
+    Dataset = factor(Dataset, levels = c("Baseline (Day -5)", "Post-Treatment", "All Timepoints")),
+    clade_name = factor(clade_name, levels = top10_all)  # Order by overall abundance
+  )
+
+# Grouped bar plot
+p_compare <- ggplot(combined_abundance,
+                    aes(x = clade_name, y = mean_abundance * 100, fill = Dataset)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_manual(values = c("Baseline (Day -5)" = "#2C5985", 
+                               "Post-Treatment" = "#EC6E1C", 
+                               "All Timepoints" = "#8C8C8C")) +
+  labs(
+    title = "Top 10 Most Abundant Genera: Baseline vs Post-Treatment",
+    x = "Genus",
+    y = "Mean Relative Abundance (%)",
+    fill = ""
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 10)),
+    axis.text.x = element_text(size = 12, angle = 45, hjust = 1, vjust = 1, face = "bold"),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 12, face = "bold"),
+    axis.line = element_line(color = "black", linewidth = 0.8)
+  )
+
+print(p_compare)
+
+# ggsave("top10_genera_baseline_vs_posttreatment.png", p_compare,
+#        path = plots_path, width = 14, height = 8, dpi = 300)
+```
+
 ##### Core genera calculation
 ```{r}
 ##### Core genera calculation
@@ -1532,17 +1596,16 @@ baseline_data <- genus_data %>%
   filter(Day == -5)
 
 # Create wide matrix for heatmap (genera as rows, samples as columns)
-# Multiply by 100 to convert to percentage
 baseline_wide <- baseline_data %>%
   select(SampleID, clade_name, Relative_Abundance) %>%
-  mutate(Relative_Abundance = Relative_Abundance * 100) %>%  # Convert to percent
+  mutate(Relative_Abundance = Relative_Abundance * 100) %>%
   pivot_wider(names_from = SampleID, values_from = Relative_Abundance, values_fill = 0) %>%
   column_to_rownames("clade_name")
 
 # Remove genera with zero abundance across all samples
 baseline_wide <- baseline_wide[rowSums(baseline_wide) > 0, ]
 
-# Filter to genera with mean abundance > threshold (now in %, so 0.1 = 0.1%)
+# Filter to genera with mean abundance > threshold
 abundance_threshold <- 0.01
 baseline_wide_filtered <- baseline_wide[rowMeans(baseline_wide) > abundance_threshold, ]
 
@@ -1556,18 +1619,22 @@ sample_annotation <- baseline_data %>%
 # Reorder columns of the matrix to match the annotation order
 baseline_wide_filtered <- baseline_wide_filtered[, rownames(sample_annotation)]
 
-# Define annotation colors
+# FIXED: Generate colors for actual Mouse names (CK-1, V-2, etc.)
+unique_mice <- unique(sample_annotation$Mouse)
+n_mice <- length(unique_mice)
+mouse_palette <- colorRampPalette(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", 
+                                     "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3"))(n_mice)
+names(mouse_palette) <- sort(unique_mice)
+
 annotation_colors <- list(
   Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341"),
-  Mouse = c("1" = "#66C2A5", "2" = "#FC8D62", "3" = "#8DA0CB", "5" = "#E78AC3")
+  Mouse = mouse_palette
 )
 
-baseline_wide_log <- log10(baseline_wide_filtered + 0.01)  # Adding 0.01% pseudocount
+baseline_wide_log <- log10(baseline_wide_filtered + 0.01)
 
-# Check the range
 range(baseline_wide_log)
 
-# Create heatmap with log10 percentages
 p_baseline_log_pct <- pheatmap(
   as.matrix(baseline_wide_log),
   scale = "none",
@@ -1598,7 +1665,8 @@ dev.off()
 ```{r}
 ## defining baseline for each mouse
 
-# Filter for Day -5 baseline and calculate mean relative abundance per Mouse per Genus
+## Second heatmap: Mean baseline per mouse
+
 baseline_mouse <- genus_data %>%
   filter(Day == -5) %>%
   group_by(Mouse, clade_name) %>%
@@ -1607,27 +1675,28 @@ baseline_mouse <- genus_data %>%
     .groups = "drop"
   )
 
-# Convert to wide format for heatmap (genera as rows, mice as columns)
-# Convert to percentage
 baseline_mouse_wide <- baseline_mouse %>%
   mutate(Mean_Relative_Abundance = Mean_Relative_Abundance * 100) %>%
   pivot_wider(names_from = Mouse, values_from = Mean_Relative_Abundance, values_fill = 0) %>%
   column_to_rownames("clade_name")
 
-# Remove genera with zero abundance across all mice
 baseline_mouse_wide <- baseline_mouse_wide[rowSums(baseline_mouse_wide) > 0, ]
 
-# Filter by abundance threshold if needed
 abundance_threshold <- 0.1
 baseline_mouse_filtered <- baseline_mouse_wide[rowMeans(baseline_mouse_wide) > abundance_threshold, ]
 
-# Log10 transform
 baseline_mouse_log <- log10(baseline_mouse_filtered + 0.01)
 
-# Check range
 range(baseline_mouse_log)
+heatmap_colors <- colorRampPalette(c("#B57E76", "#44459C"))(100)
 
-# Create heatmap - baseline per mouse
+# FIXED: Create column annotation for treatment (extract from Mouse name)
+mouse_treatment <- data.frame(
+  Mouse = colnames(baseline_mouse_log)
+) %>%
+  mutate(Treatment = str_extract(Mouse, "^[A-Z]+")) %>%
+  column_to_rownames("Mouse")
+
 p_baseline_mouse <- pheatmap(
   as.matrix(baseline_mouse_log),
   scale = "none",
@@ -1635,14 +1704,18 @@ p_baseline_mouse <- pheatmap(
   clustering_distance_cols = "euclidean",
   clustering_method = "complete",
   cluster_cols = TRUE,
-  color = viridis(100),
+  annotation_col = mouse_treatment,  # ADDED: shows treatment per mouse
+  annotation_colors = list(
+    Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341")
+  ),
+  color = heatmap_colors,
   fontsize_row = 8,
   fontsize_col = 12,
   main = "Baseline (Day -5) Mean Genus Abundance per Mouse - Log10(%)",
   show_rownames = TRUE,
   show_colnames = TRUE,
   border_color = NA,
-  angle_col = 0,
+  angle_col = 45,
   legend_breaks = c(-2, -1, 0, 1, 1.73),
   legend_labels = c("0.01%", "0.1%", "1%", "10%", "~54%")
 )
@@ -1652,5 +1725,399 @@ png(file.path(plots_path, "mice_mean_baseline_heatmap.png"),
 print(p_baseline_mouse)
 dev.off()
 
+```
+### heatmap for all Day, mean abundance
+
+```{r}
+
+
+# =============================================================================
+# HEATMAP: All Days, Mean Abundance per Mouse per Day
+# =============================================================================
+
+# Calculate mean abundance per Mouse per Day per Genus
+all_days_mouse <- genus_data %>%
+  group_by(Mouse, Day, clade_name) %>%
+  summarize(
+    Mean_Relative_Abundance = mean(Relative_Abundance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Create unique sample identifier (Mouse_Day)
+all_days_mouse <- all_days_mouse %>%
+  mutate(Mouse_Day = paste0(Mouse, "_D", Day))
+
+# Convert to wide format (genera as rows, Mouse_Day as columns)
+all_days_wide <- all_days_mouse %>%
+  mutate(Mean_Relative_Abundance = Mean_Relative_Abundance * 100) %>%
+  select(Mouse_Day, clade_name, Mean_Relative_Abundance) %>%
+  pivot_wider(names_from = Mouse_Day, values_from = Mean_Relative_Abundance, values_fill = 0) %>%
+  column_to_rownames("clade_name")
+
+# Remove genera with zero abundance
+all_days_wide <- all_days_wide[rowSums(all_days_wide) > 0, ]
+
+# Filter by abundance threshold
+abundance_threshold <- 0.1
+all_days_filtered <- all_days_wide[rowMeans(all_days_wide) > abundance_threshold, ]
+
+# Log10 transform
+all_days_log <- log10(all_days_filtered + 0.01)
+
+# Create annotation dataframe
+col_annotation <- data.frame(
+  Mouse_Day = colnames(all_days_log)
+) %>%
+  mutate(
+    Mouse = str_extract(Mouse_Day, "^[A-Z]+-[0-9]+"),
+    Treatment = str_extract(Mouse_Day, "^[A-Z]+"),
+    Day = as.numeric(str_extract(Mouse_Day, "-?[0-9]+$"))
+  ) %>%
+  mutate(Day = factor(Day, levels = c(-5, 0, 3, 10, 14))) %>%
+  column_to_rownames("Mouse_Day")
+
+# Order columns by Day then Treatment then Mouse
+col_order <- rownames(col_annotation)[order(col_annotation$Day, 
+                                             col_annotation$Treatment, 
+                                             col_annotation$Mouse)]
+all_days_log <- all_days_log[, col_order]
+col_annotation <- col_annotation[col_order, ]
+
+# Define annotation colors - UPDATED with your palette
+day_colors <- c("-5" = "#F4D166", 
+                "0" = "#C1E9B3", 
+                "3" = "#B254A5", 
+                "10" = "#626496", 
+                "14" = "#B71D3E")
+
+annotation_colors <- list(
+  Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341"),
+  Day = day_colors
+)
+
+# Calculate gaps between days
+day_counts <- table(col_annotation$Day)
+gaps_positions <- cumsum(day_counts)
+
+# Custom heatmap color scale - UPDATED
+heatmap_colors <- colorRampPalette(c("#B57E76", "#44459C"))(100)
+
+p_all_days <- pheatmap(
+  as.matrix(all_days_log),
+  scale = "none",
+  clustering_distance_rows = "euclidean",
+  clustering_method = "complete",
+  cluster_cols = FALSE,
+  annotation_col = col_annotation %>% select(Treatment, Day),
+  annotation_colors = annotation_colors,
+  color = heatmap_colors,
+  
+  # Bigger fonts
+  fontsize = 18,         # global base
+  fontsize_row = 14,
+  fontsize_col = 14,
+  
+  # Bold title
+  main = expression(bold("Genus Relative Abundance Across All Days - Log10(%)")),
+  
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  border_color = NA,
+  angle_col = 90,
+  gaps_col = gaps_positions[-length(gaps_positions)],
+  legend_breaks = c(-2, -1, 0, 1, 1.73),
+  legend_labels = c("0.01%", "0.1%", "1%", "10%", "~54%")
+)
+
+
+png(file.path(plots_path, "all_days_genus_heatmap_log10pct.png"),
+    width = 26, height = 18, units = "in", res = 300)
+print(p_all_days)
+dev.off()
+```
+```{r}
+# =============================================================================
+# KLEBSIELLA COLONIZATION SUCCESS BY STRAIN COMBINATION
+# =============================================================================
+
+# Extract Klebsiella data only
+klebsiella_data <- genus_data %>%
+  filter(clade_name == "Klebsiella") %>%
+  mutate(
+    Treatment = factor(Treatment, levels = c("V", "CK", "CZ", "ZK")),
+    Day = as.numeric(Day),
+    Abundance_Pct = Relative_Abundance * 100
+  )
+
+# Check we have data
+print(paste("Klebsiella observations:", nrow(klebsiella_data)))
+print(table(klebsiella_data$Treatment, klebsiella_data$Day))
+
+# =============================================================================
+# 1. KLEBSIELLA TRAJECTORY BY TREATMENT (Mean ± SE)
+# =============================================================================
+
+kleb_summary <- klebsiella_data %>%
+  group_by(Treatment, Day) %>%
+  summarize(
+    mean_abundance = mean(Abundance_Pct, na.rm = TRUE),
+    sd_abundance = sd(Abundance_Pct, na.rm = TRUE),
+    n = n(),
+    se_abundance = sd_abundance / sqrt(n),
+    .groups = "drop"
+  )
+
+treatment_colors <- c("V" = "#8C8C8C", "CK" = "#3770AC", "CZ" = "#9E421E", "ZK" = "#327341")
+
+p_kleb_trajectory <- ggplot(kleb_summary, 
+                            aes(x = Day, y = mean_abundance, color = Treatment, group = Treatment)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3.5) +
+  geom_errorbar(aes(ymin = mean_abundance - se_abundance,
+                    ymax = mean_abundance + se_abundance),
+                width = 0.5, linewidth = 0.8) +
+  scale_color_manual(values = treatment_colors) +
+  scale_x_continuous(breaks = c(-5, 0, 3, 10, 14)) +
+  annotate("text", x = 0.5, y = max(kleb_summary$mean_abundance) * 0.95,
+           label = "Antibiotics +\nInoculation", size = 3, hjust = 0, fontface = "italic") +
+  labs(
+    title = "Klebsiella Colonization Dynamics by Treatment",
+    subtitle = "Mean ± SE across mice",
+    x = "Day",
+    y = "Relative Abundance (%)",
+    color = "Treatment"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12, face = "italic"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    legend.title = element_text(size = 12, face = "bold")
+  )
+
+print(p_kleb_trajectory)
+
+# =============================================================================
+# 2. INDIVIDUAL MOUSE TRAJECTORIES
+# =============================================================================
+
+p_kleb_individual <- ggplot(klebsiella_data,
+                            aes(x = Day, y = Abundance_Pct, color = Treatment, group = Mouse)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.6) +
+  geom_line(linewidth = 0.8, alpha = 0.7) +
+  geom_point(size = 2, alpha = 0.8) +
+  facet_wrap(~Treatment, nrow = 1) +
+  scale_color_manual(values = treatment_colors) +
+  scale_x_continuous(breaks = c(-5, 0, 3, 10, 14)) +
+  labs(
+    title = "Individual Mouse Klebsiella Colonization",
+    subtitle = "Each line = one mouse",
+    x = "Day",
+    y = "Relative Abundance (%)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10, face = "bold", angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 10, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    strip.background = element_rect(fill = "gray95"),
+    legend.position = "none"
+  )
+
+print(p_kleb_individual)
+
+# =============================================================================
+# 3. COLONIZATION SUCCESS METRICS
+# =============================================================================
+
+# Calculate per-mouse colonization metrics (post-treatment only: Days 0, 3, 10, 14)
+colonization_metrics <- klebsiella_data %>%
+  filter(Day >= 0) %>%
+  group_by(Mouse, Treatment) %>%
+  summarize(
+    # Peak abundance
+    Peak_Abundance = max(Abundance_Pct, na.rm = TRUE),
+    Day_of_Peak = Day[which.max(Abundance_Pct)],
+    
+    # Final abundance (Day 14 persistence)
+    Final_Abundance = Abundance_Pct[Day == 14],
+    
+    # Area under curve (total colonization burden) - simple trapezoidal
+    AUC = sum(diff(sort(unique(Day))) * 
+              (head(Abundance_Pct[order(Day)], -1) + tail(Abundance_Pct[order(Day)], -1)) / 2),
+    
+    # Early colonization (Day 3)
+    Day3_Abundance = Abundance_Pct[Day == 3],
+    
+    .groups = "drop"
+  )
+
+print("=== COLONIZATION METRICS BY MOUSE ===")
+print(colonization_metrics %>% arrange(Treatment, Mouse))
+
+# Summary by treatment
+colonization_summary <- colonization_metrics %>%
+  group_by(Treatment) %>%
+  summarize(
+    n_mice = n(),
+    Peak_mean = mean(Peak_Abundance, na.rm = TRUE),
+    Peak_se = sd(Peak_Abundance, na.rm = TRUE) / sqrt(n()),
+    Final_mean = mean(Final_Abundance, na.rm = TRUE),
+    Final_se = sd(Final_Abundance, na.rm = TRUE) / sqrt(n()),
+    AUC_mean = mean(AUC, na.rm = TRUE),
+    AUC_se = sd(AUC, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+print("=== COLONIZATION SUMMARY BY TREATMENT ===")
+print(colonization_summary)
+
+# =============================================================================
+# 4. STATISTICAL TESTS - Kruskal-Wallis (non-parametric)
+# =============================================================================
+
+print("=== STATISTICAL TESTS ===")
+
+# Peak abundance
+kw_peak <- kruskal.test(Peak_Abundance ~ Treatment, data = colonization_metrics)
+print("Peak Abundance - Kruskal-Wallis:")
+print(kw_peak)
+
+# Final abundance (Day 14)
+kw_final <- kruskal.test(Final_Abundance ~ Treatment, data = colonization_metrics)
+print("Final Abundance (Day 14) - Kruskal-Wallis:")
+print(kw_final)
+
+# AUC
+kw_auc <- kruskal.test(AUC ~ Treatment, data = colonization_metrics)
+print("AUC (Total Burden) - Kruskal-Wallis:")
+print(kw_auc)
+
+# Pairwise comparisons if significant
+if (kw_peak$p.value < 0.05) {
+  print("Peak Abundance - Pairwise Wilcoxon:")
+  print(pairwise.wilcox.test(colonization_metrics$Peak_Abundance, 
+                              colonization_metrics$Treatment, 
+                              p.adjust.method = "BH"))
+}
+
+if (kw_auc$p.value < 0.05) {
+  print("AUC - Pairwise Wilcoxon:")
+  print(pairwise.wilcox.test(colonization_metrics$AUC, 
+                              colonization_metrics$Treatment, 
+                              p.adjust.method = "BH"))
+}
+
+# =============================================================================
+# 5. BOXPLOTS OF COLONIZATION METRICS
+# =============================================================================
+
+# Reshape for faceted boxplot
+metrics_long <- colonization_metrics %>%
+  pivot_longer(
+    cols = c(Peak_Abundance, Final_Abundance, AUC),
+    names_to = "Metric",
+    values_to = "Value"
+  ) %>%
+  mutate(Metric = factor(Metric, 
+                         levels = c("Peak_Abundance", "Final_Abundance", "AUC"),
+                         labels = c("Peak Abundance (%)", "Day 14 Abundance (%)", "AUC (Total Burden)")))
+
+p_metrics_boxplot <- ggplot(metrics_long, 
+                            aes(x = Treatment, y = Value, fill = Treatment)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.7) +
+  facet_wrap(~Metric, scales = "free_y", nrow = 1) +
+  scale_fill_manual(values = treatment_colors) +
+  labs(
+    title = "Klebsiella Colonization Success Metrics by Treatment",
+    x = "",
+    y = ""
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.text.x = element_text(size = 12, face = "bold"),
+    axis.text.y = element_text(size = 11, face = "bold"),
+    strip.text = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "gray95"),
+    legend.position = "none"
+  )
+
+print(p_metrics_boxplot)
+
+# =============================================================================
+# 6. HEATMAP: Klebsiella abundance per Mouse per Day
+# =============================================================================
+
+kleb_heatmap_data <- klebsiella_data %>%
+  select(Mouse, Day, Abundance_Pct) %>%
+  mutate(Day = factor(Day, levels = c(-5, 0, 3, 10, 14))) %>%
+  pivot_wider(names_from = Day, values_from = Abundance_Pct, values_fill = 0) %>%
+  column_to_rownames("Mouse")
+
+# Row annotation (Treatment)
+row_annotation <- data.frame(
+  Mouse = rownames(kleb_heatmap_data)
+) %>%
+  mutate(Treatment = str_extract(Mouse, "^[A-Z]+")) %>%
+  column_to_rownames("Mouse")
+
+# Order by treatment
+row_order <- rownames(row_annotation)[order(row_annotation$Treatment)]
+kleb_heatmap_data <- kleb_heatmap_data[row_order, ]
+row_annotation <- row_annotation[row_order, , drop = FALSE]
+
+# Heatmap colors
+heatmap_colors <- colorRampPalette(c("#FFFFFF", "#FEE5D9", "#FCAE91", 
+                                      "#FB6A4A", "#CB181D", "#67000D"))(100)
+
+p_kleb_heatmap <- pheatmap(
+  as.matrix(kleb_heatmap_data),
+  scale = "none",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  annotation_row = row_annotation,
+  annotation_colors = list(
+    Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341")
+  ),
+  color = heatmap_colors,
+  fontsize_row = 10,
+  fontsize_col = 12,
+  main = "Klebsiella Colonization: Individual Mouse Trajectories",
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  border_color = "white",
+  cellwidth = 40,
+  cellheight = 15,
+  gaps_row = cumsum(table(row_annotation$Treatment))[-length(table(row_annotation$Treatment))],
+  display_numbers = TRUE,
+  number_format = "%.1f",
+  fontsize_number = 8
+)
+
+# =============================================================================
+# SAVE PLOTS
+# =============================================================================
+
+# ggsave("klebsiella_trajectory_mean.png", p_kleb_trajectory,
+#        path = plots_path, width = 10, height = 7, dpi = 300)
+
+# ggsave("klebsiella_trajectory_individual.png", p_kleb_individual,
+#        path = plots_path, width = 14, height = 5, dpi = 300)
+
+# ggsave("klebsiella_colonization_metrics.png", p_metrics_boxplot,
+#        path = plots_path, width = 14, height = 6, dpi = 300)
+
+# png(file.path(plots_path, "klebsiella_heatmap_by_mouse.png"),
+#     width = 10, height = 12, units = "in", res = 300)
+# print(p_kleb_heatmap)
+# dev.off()
 ```
 

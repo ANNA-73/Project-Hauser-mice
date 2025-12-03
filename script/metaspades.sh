@@ -1,9 +1,9 @@
 #!/bin/sh
-#SBATCH -A p32045
-#SBATCH -p short
+#SBATCH -A b1042
+#SBATCH -p genomics
 #SBATCH -N 1
-#SBATCH -n 16
-#SBATCH -t 4:00:00
+#SBATCH -n 24
+#SBATCH -t 20:00:00
 #SBATCH --array=1-69
 #SBATCH --mem=0
 #SBATCH --job-name="spades"
@@ -26,4 +26,4 @@ R2=$sample_dir/${basename}_R1_001_kneaddata_paired_2.fastq
 
 
 
-spades.py --meta -1 $R1 -2 $R2 -o ${out_path}/${basename}_assembled -t 16
+spades.py --meta -1 $R1 -2 $R2 -o ${out_path}/${basename}_assembled -t 24  
