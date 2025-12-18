@@ -1,0 +1,327 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(tidyheatmaps)
+library(reshape2)
+library(RColorBrewer)
+library(vegan)
+library(FactoMineR)
+library(pheatmap)
+library(viridis)
+library(tidyheatmaps)
+library(ggridges)
+library(hrbrthemes)
+library(tidytext) 
+library(stringr)
+library(ggalluvial)
+library(ggchicklet)
+
+```
+
+```{r}
+file_path <- "/projects/b1042/HartmannLab/Hauser-mice/output/gtdbtk_out/classify/"
+metadata_path <- "/projects/b1042/HartmannLab/Hauser-mice/input"
+
+
+gtdbtk <- read_tsv(file.path(file_path, "gtdbtk.bac120.summary.tsv"))
+
+gtdbtk <- gtdbtk %>%
+  separate(classification, 
+           into = c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species"),
+           sep = ";", 
+           remove = FALSE) %>%
+  mutate(across(Domain:Species, ~str_remove(., "^[dpcofgs]__")))  
+
+gtdbtk <- gtdbtk %>% 
+  mutate(bin = str_extract(user_genome, "-bin.*"))
+gtdbtk$user_genome <- gsub( "-bin.*", "", gtdbtk$user_genome)
+
+gtdbtk <- gtdbtk %>%
+  mutate(Day = factor(Day, levels = c("-5", "0", "3", "10", "14")))
+
+metadata <- read_csv(file.path(metadata_path, "sample_metadata_final.csv"))
+metadata
+gtdbtk
+```
+```{r}
+# Count
+unique_bin_family_count <- n_distinct(gtdbtk$Family)
+unique_bin_genus_count <- n_distinct(gtdbtk$Genus)
+unique_species <- n_distinct(gtdbtk$Species)
+
+unique_bin_family_count
+unique_bin_genus_count
+unique_species
+```
+
+```{r}
+cat("\n=== TAXONOMIC SUMMARY OF HIGH-QUALITY MAGs ===\n")
+cat("Total MAGs:", nrow(gtdbtk), "\n\n")
+
+# Phylum distribution
+cat("PHYLUM DISTRIBUTION:\n")
+phylum_table <- table(gtdbtk$Phylum) %>% sort(decreasing = TRUE)
+print(phylum_table)
+
+# Class distribution
+cat("\n\nCLASS DISTRIBUTION:\n")
+class_table <- table(gtdbtk$Class) %>% sort(decreasing = TRUE)
+print(class_table)
+
+# Family distribution
+cat("\n\nFAMILY DISTRIBUTION (Top 15):\n")
+family_table <- table(gtdbtk$Family) %>% sort(decreasing = TRUE)
+print(head(family_table, 15))
+
+# Genus distribution
+cat("\n\nGENUS DISTRIBUTION (Top 20):\n")
+genus_table <- table(gtdbtk$Genus) %>% sort(decreasing = TRUE)
+print(head(genus_table, 20))
+
+# Check for Klebsiella (relevant to your research)
+cat("\n\n=== KLEBSIELLA MAGs ===\n")
+klebsiella_mags <- gtdbtk %>%
+  filter(str_detect(Genus, "Klebsiella"))
+if(nrow(klebsiella_mags) > 0) {
+  print(klebsiella_mags %>% select(user_genome, Family, Genus, Species, fastani_ani))
+} else {
+  cat("No Klebsiella MAGs found\n")
+}
+
+# Create summary dataframes for plotting
+phylum_counts <- gtdbtk %>%
+  count(Phylum, sort = TRUE)
+
+class_counts <- gtdbtk %>%
+  count(Class, sort = TRUE)
+
+family_counts <- gtdbtk %>%
+  count(Family, sort = TRUE) %>%
+  slice_head(n = 20)
+
+genus_counts <- gtdbtk %>%
+  count(Genus, sort = TRUE) %>%
+  slice_head(n = 20)
+
+# VISUALIZATION 1: Phylum distribution
+p1 <- ggplot(phylum_counts, aes(x = reorder(Phylum, n), y = n)) +
+  geom_chicklet(width = 0.75, stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = n), hjust = -0.2, size = 3.5) +
+  coord_flip() +
+  labs(title = "High-Quality MAGs by Phylum",
+       x = "Phylum",
+       y = "Number of MAGs") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+print(p1)
+
+# VISUALIZATION 2: Class distribution (top 15)
+p2 <- class_counts %>%
+  slice_head(n = 15) %>%
+  ggplot(aes(x = reorder(Class, n), y = n)) +
+  geom_chicklet(width = 0.75, stat = "identity", fill = "darkgreen") +
+  geom_text(aes(label = n), hjust = -0.2, size = 3) +
+  coord_flip() +
+  labs(title = "High-Quality MAGs by Class (Top 15)",
+       x = "Class",
+       y = "Number of MAGs") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+print(p2)
+
+# VISUALIZATION 3: Family distribution (top 20)
+p3 <- ggplot(family_counts, aes(x = reorder(Family, n), y = n)) +
+  geom_chicklet(width = 0.75, stat = "identity", fill = "coral") +
+  geom_text(aes(label = n), hjust = -0.2, size = 3) +
+  coord_flip() +
+  labs(title = "High-Quality MAGs by Family (Top 20)",
+       x = "Family",
+       y = "Number of MAGs") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+print(p3)
+
+# VISUALIZATION 4: Genus distribution (top 20)
+p4 <- ggplot(genus_counts, aes(x = reorder(Genus, n), y = n)) +
+  geom_chicklet(width = 0.75,stat = "identity", fill = "#cc7c3a") +
+  geom_text(aes(label = n), hjust = -0.2, size = 3) +
+  coord_flip() +
+  labs(title = "High-Quality MAGs by Genus (Top 20)",
+       x = "Genus",
+       y = "Number of MAGs") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+print(p4)
+
+# Taxonomic diversity metrics
+cat("\n\n=== TAXONOMIC DIVERSITY ===\n")
+cat("Unique Phyla:", n_distinct(gtdbtk$Phylum), "\n")
+cat("Unique Classes:", n_distinct(gtdbtk$Class), "\n")
+cat("Unique Orders:", n_distinct(gtdbtk$Order), "\n")
+cat("Unique Families:", n_distinct(gtdbtk$Family), "\n")
+cat("Unique Genera:", n_distinct(gtdbtk$Genus), "\n")
+
+# Create hierarchical taxonomy summary
+taxonomy_summary <- gtdbtk %>%
+  group_by(Phylum, Class, Order, Family, Genus) %>%
+  summarise(n_MAGs = n(), .groups = "drop") %>%
+  arrange(Phylum, Class, Order, Family, Genus)
+
+print(taxonomy_summary)
+plot_dir <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Plots"
+
+# ggsave(
+#   file.path(plot_dir, "High-QC MAGs by Genus_Top20.png"),
+#   plot = p4,
+#   width = 22,
+#   height = 18,
+#   dpi = 300
+# )
+```
+
+```{r}
+gtdbtk_sankey <- gtdbtk %>%
+  mutate(
+    sample = str_extract(user_genome, "^[^.]+"),  # Extract everything before first dot
+    # Replace empty strings with "Unknown"
+    across(c(Phylum, Class, Order, Family, Genus, Species), 
+           ~if_else(. == "" | is.na(.), "Unknown", .))
+  )
+# ============================================================
+# Create unique labels by combining with parent phylum
+# ============================================================
+gtdbtk_sankey <- gtdbtk %>%
+  mutate(
+    sample = str_extract(user_genome, "^[^.]+"),
+    across(c(Phylum, Class, Order, Family, Genus, Species), 
+           ~if_else(. == "" | is.na(.), "Unknown", .))
+  )
+
+sample_flow <- gtdbtk_sankey %>%
+  count(sample, Phylum, Family, Genus)
+
+p_sankey_samples <- ggplot(sample_flow,
+       aes(y = n, axis1 = sample, axis2 = Phylum, axis3 = Family, axis4 = Genus)) +
+  geom_alluvium(aes(fill = Phylum), alpha = 0.6, width = 1/12) +
+  geom_stratum(width = 1/12, fill = "gray30", color = "white") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum)), size = 2.5) +
+  scale_x_discrete(limits = c("Sample", "Phylum", "Family", "Genus"), expand = c(0.05, 0.05)) +
+  scale_fill_viridis_d(option = "viridis") +
+  theme_minimal(base_size = 18) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 16, face = "bold")
+  ) +
+  labs(
+    x = NULL,
+    y = "Number of MAGs",
+    title = "All samples Vs. All MAGs"
+  )
+
+p_sankey_samples
+plot_dir <- "/gpfs/projects/b1042/HartmannLab/Hauser-mice/R/Plots"
+
+# ggsave(
+#   file.path(plot_dir, "MAGs_sankey_samples.png"),
+#   plot = p_sankey_samples,
+#   width = 22,
+#   height = 18,
+#   dpi = 300
+# )
+
+```
+```{r}
+gtdbtk <- merge(gtdbtk, metadata, by.x='user_genome', by.y='SampleID', all.x =TRUE)
+gtdbtk <- select(gtdbtk, user_genome ,bin, Phylum, Class, Order, Family, Genus, Species, Treatment, Day, Mouse, fastani_ani )
+gtdbtk <- gtdbtk %>% filter(!is.na(gtdbtk$Treatment))
+
+gtdbtk
+```
+```{r}
+##MAGs count distribution pattern by timepoints and treatment
+
+Day_palette <- c("-5" = "#feedde", "0" = "#fdbe85", "3" = "#fd8d3c", "10" = "#e6550d", "14" = "#a63603")
+
+Treatment_palette <- c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341")
+
+
+sample_mags <- gtdbtk %>% 
+  group_by(Mouse, Day, Treatment) %>%  
+  summarise(count_bins = n(), .groups = 'drop')
+
+# Calculate statistics by Day
+day_stats <- sample_mags %>%
+  group_by(Day) %>%
+  summarise(
+    total_bins = sum(count_bins),
+    n_samples = n(),
+    mean_bins = mean(count_bins),
+    median_bins = median(count_bins),
+    sd_bins = sd(count_bins),
+    .groups = 'drop'
+  )
+
+
+```
+```{r}
+# Calculate median per Day
+day_medians <- sample_mags %>%
+  group_by(Day) %>%
+  summarise(median_bins = median(count_bins), .groups = 'drop')
+
+p_mags_alt <- ggplot(sample_mags, aes(x = Mouse, y = count_bins, fill = Treatment)) +
+  geom_chicklet(alpha = 0.9, width = 0.7) +  # Adjusted width
+  geom_hline(data = day_medians, 
+             aes(yintercept = median_bins),
+             linetype = "dashed", color = "black", linewidth = 1) +
+  facet_wrap(~ Day, nrow = 1, scales = "free_x") +
+  labs(
+    title = "Distribution of Bacterial MAGs Across Timepoints and Treatments",
+    x = "Mouse ID",
+    y = "Number of MAGs"
+  ) +
+  scale_fill_manual(values = Treatment_palette) +
+  theme_bw(base_size = 14) +  # Increased base font size
+  theme(
+    # Larger text sizes
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 11),
+    axis.text.y = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 11),
+    
+    # Facet formatting
+    strip.text = element_text(size = 13, face = "bold"),
+    strip.background = element_rect(fill = "lightgray"),
+    
+    # Add space between facets
+    panel.spacing = unit(1.5, "lines"),
+    
+    # Adjust plot margins
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+ggsave(
+  file.path(plot_dir, "MAG_Distribution_Days_and_Treatments.png"),
+  plot = p_mags_alt,
+  width = 16,
+  height = 6,
+  dpi = 300
+)
+```
+

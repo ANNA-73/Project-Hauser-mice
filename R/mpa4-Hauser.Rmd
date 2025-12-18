@@ -337,24 +337,28 @@ baseline_top_genera <- baseline_mouse_level %>%
 
 p_baseline_heatmap <- ggplot(baseline_top_genera, 
                              aes(x = as.factor(Mouse), y = clade_name, fill = mean_abundance * 100)) +
-  geom_tile(color = "white") +
-  scale_fill_viridis_c(option = "plasma") +
+   geom_tile(color = "white", linewidth = 1.5) +
+  geom_text(aes(label = round(Distance, 3)), color = "black", size = 5, fontface = "bold") +
+  scale_fill_gradientn(colors = custom_colors, limits = c(0,1) ) +
   labs(
-    title = "Baseline Microbiome Composition by Mouse (Day -5)",
-    subtitle = "Top 10 most abundant genera",
+    title = "Pairwise Bray-Curtis Distances Between Mice at Day0",
+    subtitle = paste0("Mean Distance = ", mean_dist),  # DYNAMIC
     x = "Mouse ID",
-    y = "Genus",
-    fill = "Mean Relative\nAbundance (%)"
+    y = "Mouse ID",
+    fill = "Bray-Curtis\nDissimilarity"
   ) +
   theme_minimal() +
   theme(
     plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
     plot.subtitle = element_text(hjust = 0.5, size = 10, face = "italic"),
-    axis.text.x = element_text(angle = 90, hjust = 0.5, size = 10),
-    axis.text.y = element_text(size = 10)
-  )
+    axis.text.x = element_text(angle= 90, size = 12, face = "bold"),
+    axis.text.y = element_text(angle= 0, size = 12, face = "bold"),
+    axis.title = element_text(size = 12, face = "bold"),
+    legend.title = element_text(size = 10, face = "bold"),
+    panel.grid = element_blank()
+  ) +
+  coord_fixed()
 
-print(p_baseline_heatmap)
 
 
 #========================================================================================
@@ -396,17 +400,17 @@ dist_long <- dist_matrix %>%
   distinct(min_mouse, max_mouse, .keep_all = TRUE) %>%
   select(Mouse1, Mouse2, Distance)
 
-custom_colors <- c("#26456E", "#1c54a8", "#FFE04F")
+custom_colors <- c("#26456E", "#1c54a8", "#FFE04F", "#EC6E1C", "#9F3632")
 
 # Calculate mean distance for subtitle
 mean_dist <- round(baseline_dist_summary$mean_distance, 3)
 
 p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Distance)) +
-  geom_tile(color = "white", linewidth = 1.5) +
+   geom_tile(color = "white", linewidth = 1.5) +
   geom_text(aes(label = round(Distance, 3)), color = "black", size = 5, fontface = "bold") +
-  scale_fill_gradientn(colors = custom_colors, limits = c(0, max(dist_long$Distance))) +
+  scale_fill_gradientn(colors = custom_colors, limits = c(0,1) ) +
   labs(
-    title = "Pairwise Bray-Curtis Distances Between Mice at Baseline",
+    title = "Pairwise Bray-Curtis Distances Between Mice at Day0",
     subtitle = paste0("Mean Distance = ", mean_dist),  # DYNAMIC
     x = "Mouse ID",
     y = "Mouse ID",
@@ -424,21 +428,22 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
   ) +
   coord_fixed()
 
+
 print(p_distance_heatmap)
 
 
  ggsave("baseline_distance_heatmap.png", p_distance_heatmap,
-        path = plots_path, width = 8, height = 7, dpi = 300)
+        path = plots_path, width = 14, height = 12, dpi = 300)
 
- ggsave("p_top10_baseline.png", p_top10_baseline,
-        path = plots_path, width = 8, height = 7, dpi = 300)
+ # ggsave("p_top10_baseline.png", p_top10_baseline,
+ #        path = plots_path, width = 8, height = 7, dpi = 300)
 
 ```
 ##what abt day 0?
 
 ```{r}
 dayzero_data <- genus_data %>%
-  filter(Day == 0)%>%
+  filter(Day == 14)%>%
   mutate(Mouse = as.factor(Mouse)) 
 
 baseline_mouse_level <- dayzero_data %>%
@@ -481,7 +486,7 @@ dist_long <- dist_matrix %>%
   distinct(min_mouse, max_mouse, .keep_all = TRUE) %>%
   select(Mouse1, Mouse2, Distance)
 
-custom_colors <- c("#26456E", "#1c54a8", "#FFE04F")
+custom_colors <- c("#26456E", "#1c54a8", "#FFE04F", "#EC6E1C", "#9F3632")
 
 # Calculate mean distance for subtitle
 mean_dist <- round(baseline_dist_summary$mean_distance, 3)
@@ -489,9 +494,9 @@ mean_dist <- round(baseline_dist_summary$mean_distance, 3)
 p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Distance)) +
   geom_tile(color = "white", linewidth = 1.5) +
   geom_text(aes(label = round(Distance, 3)), color = "black", size = 5, fontface = "bold") +
-  scale_fill_gradientn(colors = custom_colors, limits = c(0,0.5) ) +
+  scale_fill_gradientn(colors = custom_colors, limits = c(0,1) ) +
   labs(
-    title = "Pairwise Bray-Curtis Distances Between Mice at Day0",
+    title = "Pairwise Bray-Curtis Distances Between Mice at Day14",
     subtitle = paste0("Mean Distance = ", mean_dist),  # DYNAMIC
     x = "Mouse ID",
     y = "Mouse ID",
@@ -512,7 +517,7 @@ p_distance_heatmap <- ggplot(dist_long, aes(x = Mouse2, y = Mouse1, fill = Dista
 print(p_distance_heatmap)
 
 ggsave(
-  filename = file.path(plots_path, "day0_distance_heatmap.png"),
+  filename = file.path(plots_path, "day14_distance_heatmap.png"),
   plot = p_distance_heatmap,
   width = 14,
   height = 12,
@@ -706,10 +711,10 @@ p_facet_heatmap <- ggplot(heatmap_lower,
 
 print(p_facet_heatmap)
 
-# Save to file (adjust path/size as needed)
-dir.create(plots_path, recursive = TRUE, showWarnings = FALSE)
-ggsave("between_treatment_distances_faceted_lower_triangle.png", p_facet_heatmap,
-       path = plots_path, width = 16, height = 5, dpi = 300)
+# # Save to file (adjust path/size as needed)
+# dir.create(plots_path, recursive = TRUE, showWarnings = FALSE)
+# ggsave("between_treatment_distances_faceted_lower_triangle.png", p_facet_heatmap,
+#        path = plots_path, width = 16, height = 5, dpi = 300)
 
 ```
 ###another cool analysis, each indivual mouse has it's baseline, let's follow while comaring to that
@@ -812,7 +817,6 @@ p_individual <- ggplot(mouse_trajectories,
   annotate("text", x = 0.5, y = 0.95, 
            label = "Antibiotics +\nInoculation", size = 3, hjust = 0, fontface = "italic") +
   labs(
-    title = "Individual Mouse Microbiome Change from Baseline",
     subtitle = "Each line = one mouse; Distance = Bray-Curtis dissimilarity from own Day -5",
     x = "Day",
     y = "Bray-Curtis Distance from Baseline",
@@ -999,8 +1003,8 @@ p_permanova_post <- ggplot(permanova_results_post, aes(x = Factor, y = R2, fill 
 print(p_permanova_post)
 
 
-ggsave("post_treatment_permanova.png", p_permanova_post,
-       path = plots_path, width = 10, height = 7, dpi = 300)
+# ggsave("post_treatment_permanova.png", p_permanova_post,
+#        path = plots_path, width = 10, height = 7, dpi = 300)
 ```
 
 ```{r}
@@ -1341,6 +1345,15 @@ core_species_filtered <- core_species %>%
   filter(Prevalence >= 70) %>%
   arrange(Day, desc(Mean_Abundance))
 
+
+
+core_genera_filtered <- core_genera_filtered %>%
+  mutate(Day = factor(Day, levels = c(-5, 0, 3, 10, 14)))
+
+core_species_filtered <- core_species_filtered %>%
+  mutate(Day = factor(Day, levels = c(-5, 0, 3, 10, 14)))
+
+
 core_genera_list <- unique(core_genera_filtered$clade_name)
 core_species_list <- unique(core_species_filtered$clade_name)
 
@@ -1386,7 +1399,7 @@ p_core_s <- ggplot(core_species_filtered,
   scale_fill_gradientn(colors = custom_colors) +
   coord_fixed() +
   labs(
-    title = " >70% Prevelant Spicies",
+    title = " >70% Prevelant Species",
     x = "Species",
     y = "Day",
     fill = "Prevalence (%)"
@@ -1417,24 +1430,24 @@ p_core_s <- ggplot(core_species_filtered,
 print(p_core_g)
 print(p_core_s)
 
-# ggsave(
-#   filename = "70 prevalent Genera by Day .png",
-#   plot = p_core_g,
-#   path = plots_path,
-#   width = 18,
-#   height = 12,
-#   dpi = 300
-# )
-# 
-# 
-# ggsave(
-#   filename = "70 prevalent Species by Day .png",
-#   plot = p_core_s,
-#   path = plots_path,
-#   width = 18,
-#   height = 12,
-#   dpi = 300
-# )
+ggsave(
+  filename = "70 prevalent Genera by Day .png",
+  plot = p_core_g,
+  path = plots_path,
+  width = 18,
+  height = 12,
+  dpi = 300
+)
+
+
+ggsave(
+  filename = "70 prevalent Species by Day .png",
+  plot = p_core_s,
+  path = plots_path,
+  width = 22,
+  height = 12,
+  dpi = 300
+)
 
 ```
 
@@ -1704,18 +1717,18 @@ p_baseline_mouse <- pheatmap(
   clustering_distance_cols = "euclidean",
   clustering_method = "complete",
   cluster_cols = TRUE,
-  annotation_col = mouse_treatment,  # ADDED: shows treatment per mouse
+  annotation_col = mouse_treatment,  
   annotation_colors = list(
     Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341")
   ),
-  color = heatmap_colors,
+  color = viridis(100),
   fontsize_row = 8,
   fontsize_col = 12,
   main = "Baseline (Day -5) Mean Genus Abundance per Mouse - Log10(%)",
   show_rownames = TRUE,
   show_colnames = TRUE,
   border_color = NA,
-  angle_col = 45,
+  angle_col = "45",
   legend_breaks = c(-2, -1, 0, 1, 1.73),
   legend_labels = c("0.01%", "0.1%", "1%", "10%", "~54%")
 )
@@ -1799,41 +1812,91 @@ annotation_colors <- list(
 day_counts <- table(col_annotation$Day)
 gaps_positions <- cumsum(day_counts)
 
-# Custom heatmap color scale - UPDATED
-heatmap_colors <- colorRampPalette(c("#B57E76", "#44459C"))(100)
+library(ComplexHeatmap)
+library(viridis)
+library(circlize)  # for colorRamp2
 
-p_all_days <- pheatmap(
-  as.matrix(all_days_log),
-  scale = "none",
-  clustering_distance_rows = "euclidean",
-  clustering_method = "complete",
-  cluster_cols = FALSE,
-  annotation_col = col_annotation %>% select(Treatment, Day),
-  annotation_colors = annotation_colors,
-  color = heatmap_colors,
-  
-  # Bigger fonts
-  fontsize = 18,         # global base
-  fontsize_row = 14,
-  fontsize_col = 14,
-  
-  # Bold title
-  main = expression(bold("Genus Relative Abundance Across All Days - Log10(%)")),
-  
-  show_rownames = TRUE,
-  show_colnames = TRUE,
-  border_color = NA,
-  angle_col = 90,
-  gaps_col = gaps_positions[-length(gaps_positions)],
-  legend_breaks = c(-2, -1, 0, 1, 1.73),
-  legend_labels = c("0.01%", "0.1%", "1%", "10%", "~54%")
+# Create color function for heatmap
+col_fun <- colorRamp2(
+  breaks = seq(-2, 1.73, length.out = 100),
+  colors = viridis(100)
 )
 
+# Column annotation with THICK bars and LARGE fonts
+ha_col <- HeatmapAnnotation(
+  Treatment = col_annotation$Treatment,
+  Day = as.character(col_annotation$Day),
+  col = list(
+    Treatment = c("CK" = "#3770AC", "CZ" = "#9E421E", "V" = "#8C8C8C", "ZK" = "#327341"),
+    Day = c("-5" = "#feedde", "0" = "#fdbe85", "3" = "#fd8d3c", "10" = "#e6550d", "14" = "#a63603")
+  ),
+  annotation_height = unit(c(10, 10), "mm"),           # THICK annotation bars
+  annotation_name_gp = gpar(fontsize = 16, fontface = "bold"),  # Annotation label font
+  annotation_legend_param = list(
+    Treatment = list(
+      title_gp = gpar(fontsize = 14, fontface = "bold"),
+      labels_gp = gpar(fontsize = 12)
+    ),
+    Day = list(
+      title_gp = gpar(fontsize = 14, fontface = "bold"),
+      labels_gp = gpar(fontsize = 12)
+    )
+  )
+)
 
-png(file.path(plots_path, "all_days_genus_heatmap_log10pct.png"),
-    width = 26, height = 18, units = "in", res = 300)
-print(p_all_days)
+# Option 1: Move row names to the left side
+ht <- Heatmap(
+  as.matrix(all_days_log),
+  name = "Log10(%)",
+  col = col_fun,
+  
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  clustering_distance_rows = "euclidean",
+  clustering_method_rows = "complete",
+  
+  top_annotation = ha_col,
+  
+  column_split = col_annotation$Day,
+  column_gap = unit(4, "mm"),
+  
+  # MOVE ROW NAMES TO LEFT
+  row_names_side = "left",
+  row_names_gp = gpar(fontsize = 14, fontface = "bold"),
+  
+  column_names_gp = gpar(fontsize = 14, fontface = "bold"),
+  column_names_rot = 90,
+  
+  column_title = "Genus Relative Abundance Across All Days - Log10(%)",
+  column_title_gp = gpar(fontsize = 20, fontface = "bold"),
+  
+  heatmap_legend_param = list(
+    title = "Log10(%)",
+    title_gp = gpar(fontsize = 14, fontface = "bold"),
+    labels_gp = gpar(fontsize = 12),
+    at = c(-2, -1, 0, 1, 1.73),
+    labels = c("0.01%", "0.1%", "1%", "10%", "~54%"),
+    legend_height = unit(6, "cm"),
+    grid_width = unit(8, "mm")
+  ),
+  
+  border = FALSE
+)
+
+# Draw with more padding
+png(file.path(plots_path, "all_days_heatmap.png"), 
+    width = 22, height = 16, units = "in", res = 300)
+
+draw(ht, 
+     heatmap_legend_side = "right",
+     annotation_legend_side = "right",
+     padding = unit(c(20, 50, 20, 20), "mm"),
+     merge_legend = TRUE,
+     legend_gap = unit(20, "mm")
+)
+
 dev.off()
+
 ```
 ```{r}
 # =============================================================================
